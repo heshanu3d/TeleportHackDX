@@ -127,6 +127,7 @@
   <a href="#download">3. 获取产物（CI 构建 or 本地编译）</a>
   <a href="#layout">4. 整理文件目录</a>
   <a href="#inject">5. 注入到 WoW.exe</a>
+  <a href="#ce-inject">&nbsp;&nbsp;5.1 使用 Cheat Engine 注入（详细步骤）</a>
   <a href="#usage">6. 界面使用说明</a>
   <a href="#files">7. 数据文件格式（favlist.fav / hotkey.txt / settings.json）</a>
   <a href="#troubleshoot">8. 常见问题排查</a>
@@ -221,11 +222,70 @@ cmake --build . --config Release
         <td>操作流程类似 Extreme Injector</td>
       </tr>
     </table>
-    Cheat Engine 自带的注入功能也可以用，但它 README 里提到的驱动改名技巧是针对
-    带反作弊驱动的正版游戏的，这几个怀旧服/私服客户端一般不需要。
+    Cheat Engine 自带的注入功能也可以用，完整步骤见下方 <a href="#ce-inject">5.1 使用 Cheat Engine 注入</a>。
   </li>
   <li><span class="step-num">3</span>注入成功后，游戏内按 <strong>Win + Insert</strong> 显示/隐藏悬浮界面。</li>
 </ol>
+
+<h3 id="ce-inject">5.1 使用 Cheat Engine 注入（详细步骤）</h3>
+<div class="card">
+  Cheat Engine 从 6.4 版本开始自带了通用的"Inject DLL"功能，本身就是一个成熟稳定的注入器，
+  不需要额外下载别的工具。以下是完整流程：
+</div>
+<ol>
+  <li><span class="step-num">1</span><strong>下载安装 Cheat Engine</strong>：官网
+    <a href="https://cheatengine.org/" target="_blank">cheatengine.org</a> 下载最新版（7.x），
+    安装时如果弹出捆绑软件推荐，一路选择跳过/拒绝即可。</li>
+
+  <li><span class="step-num">2</span><strong>先启动 WoW 客户端</strong>（对应版本，32 位），
+    进到角色选择界面或游戏世界，确保进程和窗口已经存在。</li>
+
+  <li><span class="step-num">3</span><strong>启动 Cheat Engine</strong>。如果 Windows Defender /
+    杀毒软件弹出拦截提示（Cheat Engine 自带的驱动组件很容易被误报），需要允许运行/加入白名单，
+    否则后续注入会失败。</li>
+
+  <li><span class="step-num">4</span><strong>选择目标进程</strong>：点击 Cheat Engine 主窗口左上角
+    那个"电脑显示器+放大镜"图标（Process List / <em>Open Process</em> 按钮），
+    在弹出的进程列表里找到并双击 <code>WoW.exe</code> 完成附加（attach）。
+    如果列表里看不到 WoW.exe，确认第 2 步的游戏客户端确实已经在运行。</li>
+
+  <li><span class="step-num">5</span><strong>打开 Memory Viewer</strong>：附加成功后，
+    点击主窗口工具栏里那个类似"内存条/二进制"的图标（或菜单里的 <em>Memory View</em>，
+    快捷键通常是 <code>Ctrl+M</code>），会打开一个新的 "Memory Viewer" 窗口。</li>
+
+  <li><span class="step-num">6</span><strong>注入 DLL</strong>：在 Memory Viewer 窗口的菜单栏中，
+    找到 <strong>Tools → Inject dll</strong>（不同 CE 版本菜单名称可能是 "Inject dll" 或
+    "Inject DLL into process"），点击后弹出文件选择框，浏览选中你的
+    <code>TeleportHackDX.dll</code>（放在 <code>dll_injector/</code>
+    或前面第 4 步整理的 <code>C:\WowHack\</code> 目录里都行），点击"打开"确认注入。</li>
+
+  <li><span class="step-num">7</span><strong>确认注入结果</strong>：正常情况下不会有任何弹窗提示"成功"，
+    这是正常现象。切回 WoW 游戏窗口，按 <strong>Win + Insert</strong>，应该能看到悬浮界面出现。
+    如果想再次确认 DLL 确实已加载，可以在 Cheat Engine 里查看
+    <em>Memory View → Symbols / Modules 列表</em>，里面应该能找到
+    <code>TeleportHackDX.dll</code>。</li>
+
+  <li><span class="step-num">8</span><strong>后续可以关闭 Cheat Engine</strong>：
+    DLL 一旦通过 <code>LoadLibrary</code> 方式注入成功，就已经常驻在 WoW 进程里了，
+    和 Cheat Engine 本身是否还开着无关，可以放心关掉 CE 窗口。</li>
+</ol>
+
+<div class="warn">
+  <strong>Cheat Engine 常见坑：</strong>
+  <ul style="margin-top:8px;">
+    <li><strong>进程列表里找不到 WoW.exe / 附加失败：</strong>
+      尝试以"管理员身份运行" Cheat Engine 再重新附加一次。</li>
+    <li><strong>32 位/64 位不匹配报错：</strong>
+      现代 Cheat Engine 安装包内置了 32 位和 64 位两套注入辅助程序，会根据目标进程位数自动选择，
+      一般不需要手动处理；如果确实报位数不匹配的错误，去官网重新下载最新完整安装包（而不是绿色版/旧版）。</li>
+    <li><strong>杀毒软件把 Cheat Engine 或注入后的 DLL 删除/隔离：</strong>
+      需要把 Cheat Engine 安装目录和 <code>TeleportHackDX.dll</code> 所在文件夹都加入杀毒软件的排除项，
+      这是外挂/内存工具类软件的通病，属于误报而非真的有恶意代码。</li>
+    <li><strong>Memory Viewer 菜单里没有 "Inject dll" 选项：</strong>
+      说明这个 Cheat Engine 版本较老，去官网升级到最新版即可，"Inject dll" 从很早的版本开始就是标配功能。</li>
+  </ul>
+</div>
+
 
 <h2 id="usage">6. 界面使用说明</h2>
 <p>界面布局完全对应原 AutoIt/Python 版本的窗口结构：</p>
