@@ -17,6 +17,11 @@ struct Settings {
     std::string default_version = "3.3.5";
     std::string favlist_path = "favlist.fav";
     std::string hotkey_path = "hotkey.txt";
+    // Server-side Teleport.lua script (see repository/teleport_lua_repository.h)
+    // used by the "读取到炉石" button to push the current position/orientation
+    // into its `local FAV` table. Empty by default -- most setups don't have
+    // this file next to the DLL/EXE, so it must be configured explicitly.
+    std::string teleport_lua_path = "";
     std::string last_category = ALL_CATEGORY;
     double speed_value = 7.0;
     bool fast_step = false;

@@ -57,6 +57,7 @@ set(CORE_SOURCES
     src/repository/favlist_repository.cpp
     src/repository/hotkey_config_repository.cpp
     src/repository/settings_repository.cpp
+    src/repository/teleport_lua_repository.cpp
     src/ui/app.cpp
     src/util/paths.cpp
     src/util/process_list.cpp
@@ -106,6 +107,16 @@ if(MSVC)
     target_compile_options(orientation_tests PRIVATE /W4 /permissive-)
 endif()
 add_test(NAME orientation_compatibility COMMAND orientation_tests)
+
+add_executable(teleport_lua_tests
+    tests/teleport_lua_repository_tests.cpp
+)
+target_link_libraries(teleport_lua_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(teleport_lua_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME teleport_lua_repository COMMAND teleport_lua_tests)
+
 
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK
 # (June 2010) required, unlike some older tutorials.

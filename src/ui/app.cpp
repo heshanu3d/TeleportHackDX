@@ -10,6 +10,7 @@
 #include "imgui.h"
 #include "memory/outofprocess_backend.h"
 #include "repository/hotkey_config_repository.h"
+#include "repository/teleport_lua_repository.h"
 #include "util/paths.h"
 
 #pragma comment(lib, "comdlg32.lib")
@@ -492,6 +493,36 @@ void App::render_crud_rows() {
             }
         }
     }
+    ImGui::SameLine();
+    // 读取到炉石 (read-to-hearthstone): same current-position read as 编辑
+    // (Edit), but instead of updating our in-memory favourites_ list it
+    // patches the matching entry's x/y/z/o directly inside the
+    // server-side Teleport.lua's `local FAV` table -- see
+    // repository/teleport_lua_repository.h for why this is a surgical
+    // single-line edit rather than a full gen_fav.py-style regeneration.
+    if (ImGui::Button("\xe8\xaf\xbb\xe5\x8f\x96\xe5\x88\xb0\xe7\x82\x89\xe7\x9f\xb3")) {
+        if (selected_row_ < 0) {
+            log("[warn] no row selected for \xe8\xaf\xbb\xe5\x8f\x96\xe5\x88\xb0\xe7\x82\x89\xe7\x9f\xb3");
+        } else if (settings_.teleport_lua_path.empty()) {
+            log("[warn] Teleport.lua path not configured (see Settings)");
+        } else if (teleport_) {
+            Position pos;
+            if (teleport_->read_position(pos)) {
+                auto pt = current_point();
+                if (pt) {
+                    std::string lua_error;
+                    TeleportLuaRepository lua_repo(resolve_path(settings_.teleport_lua_path));
+                    if (lua_repo.update_entry(pt->description, pos, lua_error)) {
+                        log("Teleport.lua: updated '" + pt->description + "'");
+                    } else {
+                        log("[error] Teleport.lua update failed: " + lua_error);
+                    }
+                }
+            } else {
+                log("[error] cannot read position: " + teleport_->last_error());
+            }
+        }
+    }
 
     if (ImGui::Button("\xe8\xbf\xbd\xe5\x8a\xa0")) { // 追加 (add at end)
         Position pos;
@@ -631,6 +662,13 @@ void App::render_settings_popup() {
     if (ImGui::InputText("hotkey.txt path", hk_path, sizeof(hk_path))) {
         settings_.hotkey_path = hk_path;
     }
+    char lua_path[512];
+    std::snprintf(lua_path, sizeof(lua_path), "%s", settings_.teleport_lua_path.c_str());
+    if (ImGui::InputText("Teleport.lua path", lua_path, sizeof(lua_path))) {
+        settings_.teleport_lua_path = lua_path;
+    }
+    ImGui::TextDisabled(
+        "used by \xe8\xaf\xbb\xe5\x8f\x96\xe5\x88\xb0\xe7\x82\x89\xe7\x9f\xb3, leave empty to disable");
 
     if (ImGui::Button("Apply paths + reload")) {
         favourites_ = FavouritesService(FavlistRepository(resolve_path(settings_.favlist_path)));

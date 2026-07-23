@@ -307,6 +307,10 @@ cmake --build . --config Release
   <tr><td><strong>step 勾选框</strong></td><td>勾选后传送变为"分步平滑移动"，不勾选则瞬间传送</td></tr>
   <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
   <tr><td><strong>插前 / 插后 / 编辑 / 删除</strong></td><td>基于当前选中行 + 描述输入框 + 当前读取到的角色坐标，插入/编辑/删除该分类下的传送点</td></tr>
+  <tr><td><strong>读取到炉石</strong></td><td>和"编辑"一样读取当前角色的 x/y/z/朝向，但写入的不是 favlist.fav，
+    而是服务端 <code>Teleport.lua</code> 里 <code>local FAV</code> 表中<strong>当前选中行同名</strong>的那一条坐标数据
+    （按描述文本精确匹配）。用于快速同步"超级炉石"NPC/道具菜单里的坐标，不需要重跑 <code>gen_fav.py</code> 整表重新生成。
+    需要先在 Settings 里配置 Teleport.lua 的路径，否则会提示未配置。</td></tr>
   <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt</td></tr>
   <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
   <tr><td><strong>Speed 行</strong></td><td>设置移动速度（仅 3.3.5 支持，1.12.x 灰色不可用）</td></tr>
@@ -344,6 +348,16 @@ cmake --build . --config Release
 
 <h3>settings.json</h3>
 <p>首次运行会自动生成在 DLL/EXE 同目录下，记录分步移动参数、上次选择的分类、速度值等，缺失或损坏时会自动回退到默认值，不会导致崩溃。</p>
+
+<h3>Teleport.lua（服务端"超级炉石"脚本，可选）</h3>
+<p>
+  如果你的 WoW 3.3.5 服务端用 Eluna/mod-lua 跑了类似"超级炉石"的传送菜单脚本，其坐标通常存放在
+  <code>local FAV = { {"名称", mapId, X, Y, Z, 朝向O}, ... }</code> 这样一张表里（一般由配套的
+  <code>gen_fav.py</code> 从 favlist.fav 整体重新生成）。"读取到炉石"按钮不会重新生成整个文件，
+  只会<strong>按描述文本精确匹配</strong>找到对应那一行，原地替换它的 x/y/z（朝向为空时保留原有朝向不变），
+  其余所有行（菜单代码、其它坐标、mapId）逐字节保持不变，文件的 UTF-8 BOM 和 CRLF 换行也会保留。
+  如果在表里找不到同名条目，会在日志里提示"未找到"，不会新增或写坏文件。
+</p>
 
 <h2 id="desktop">8. 桌面测试版（不用注入也能验证功能）</h2>
 <div class="card">
