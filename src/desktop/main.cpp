@@ -33,6 +33,7 @@ IDirect3DDevice9* g_pd3dDevice = nullptr;
 D3DPRESENT_PARAMETERS g_d3dpp = {};
 bool g_device_lost = false;
 UINT g_resize_width = 0, g_resize_height = 0;
+RECT g_window_rect = {100, 100, 600, 1000}; // updated live on WM_MOVE/WM_SIZE, see WndProc
 
 th::App g_app;
 
@@ -91,6 +92,14 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             if (wParam == SIZE_MINIMIZED) return 0;
             g_resize_width = static_cast<UINT>(LOWORD(lParam));
             g_resize_height = static_cast<UINT>(HIWORD(lParam));
+            // Also track the outer window rect continuously (not just on
+            // resize but on move too, below) so it's ready to persist even
+            // though by the time the message loop sees WM_QUIT the window
+            // handle is already destroyed and GetWindowRect() would fail.
+            GetWindowRect(hwnd, &g_window_rect);
+            return 0;
+        case WM_MOVE:
+            GetWindowRect(hwnd, &g_window_rect);
             return 0;
         case WM_SYSCOMMAND:
             if ((wParam & 0xfff0) == SC_KEYMENU) return 0; // disable ALT menu
@@ -214,12 +223,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         if (result == D3DERR_DEVICELOST) g_device_lost = true;
     }
 
-    // Persist wherever the user ended up leaving the window.
-    RECT rect;
-    if (GetWindowRect(hwnd, &rect)) {
-        g_app.set_window_bounds(rect.left, rect.top, rect.right - rect.left,
-                                 rect.bottom - rect.top);
-    }
+    // Persist wherever the user ended up leaving the window. Note: by this
+    // point (message loop already drained WM_QUIT) `hwnd` has typically
+    // already been destroyed by DefWindowProc's WM_CLOSE handling, so a
+    // fresh GetWindowRect(hwnd, ...) call here would just fail -- use the
+    // last-known-good rect captured continuously in WndProc instead.
+    g_app.set_window_bounds(g_window_rect.left, g_window_rect.top,
+                             g_window_rect.right - g_window_rect.left,
+                             g_window_rect.bottom - g_window_rect.top);
 
     g_app.shutdown();
     ImGui_ImplDX9_Shutdown();
