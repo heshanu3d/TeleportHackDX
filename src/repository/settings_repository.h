@@ -20,6 +20,16 @@ struct Settings {
     std::string last_category = ALL_CATEGORY;
     double speed_value = 7.0;
     bool fast_step = false;
+
+    // Persisted window bounds. In the injected DLL these govern the
+    // floating ImGui overlay panel's position/size over the game screen;
+    // in the standalone desktop build they govern the actual OS-level
+    // window. -1 for x/y means "not set yet, let the platform/ImGui pick
+    // a default position".
+    int window_x = -1;
+    int window_y = -1;
+    int window_width = 460;
+    int window_height = 820;
 };
 
 class SettingsRepository {

@@ -146,6 +146,10 @@ Settings SettingsRepository::load() const {
     get_str("last_category", s.last_category);
     get_double("speed_value", s.speed_value);
     get_bool("fast_step", s.fast_step);
+    get_int("window_x", s.window_x);
+    get_int("window_y", s.window_y);
+    get_int("window_width", s.window_width);
+    get_int("window_height", s.window_height);
     return s;
 }
 
@@ -167,7 +171,11 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"hotkey_path\": \"" << json_escape(settings.hotkey_path) << "\",\n";
     fh << "  \"last_category\": \"" << json_escape(settings.last_category) << "\",\n";
     fh << "  \"speed_value\": " << settings.speed_value << ",\n";
-    fh << "  \"fast_step\": " << (settings.fast_step ? "true" : "false") << "\n";
+    fh << "  \"fast_step\": " << (settings.fast_step ? "true" : "false") << ",\n";
+    fh << "  \"window_x\": " << settings.window_x << ",\n";
+    fh << "  \"window_y\": " << settings.window_y << ",\n";
+    fh << "  \"window_width\": " << settings.window_width << ",\n";
+    fh << "  \"window_height\": " << settings.window_height << "\n";
     fh << "}\n";
     return true;
 }

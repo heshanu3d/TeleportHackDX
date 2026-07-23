@@ -65,6 +65,13 @@ public:
     // Forward WM_HOTKEY from the hooked/owned WndProc. Returns true if handled.
     bool on_wndproc(UINT msg, WPARAM wParam, LPARAM lParam);
 
+    // Desktop build only: called by main.cpp with the OS window's current
+    // screen rect (e.g. from GetWindowRect) right before shutdown(), so
+    // the saved settings.json remembers where the user left the window.
+    // No-op in InProcess mode (there the *ImGui panel's* bounds are what
+    // get persisted instead, captured automatically every frame in render()).
+    void set_window_bounds(int x, int y, int width, int height);
+
     // Persist settings + unregister hotkeys; call before tearing down
     // ImGui/the hook/the window.
     void shutdown();

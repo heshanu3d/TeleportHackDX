@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.15)
-project(TeleportHackDX CXX C)
+
+# Single source of truth for the version number -- also read directly by
+# .github/workflows/build.yml to name release artifacts.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" TELEPORTHACKDX_VERSION)
+string(STRIP "${TELEPORTHACKDX_VERSION}" TELEPORTHACKDX_VERSION)
+
+project(TeleportHackDX VERSION ${TELEPORTHACKDX_VERSION} LANGUAGES CXX C)
 
 # --- 32-bit only: these WoW clients (1.12.1 / 1.12.3 / 3.3.5) all ship as
 # 32-bit executables, and every hardcoded memory address in

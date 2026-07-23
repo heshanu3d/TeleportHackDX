@@ -17,13 +17,26 @@ jobs:
       - name: Build (Release)
         run: cmake --build build --config Release --parallel
 
+      - name: Compute version string
+        id: vars
+        shell: bash
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          echo "artifact_name=TeleportHackDX-${VERSION}-g${SHORT_SHA}-win32" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare flat artifact folder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item build/bin/Release/TeleportHackDX.dll dist/
+          Copy-Item build/bin/Release/TeleportHackDesktop.exe dist/
+          Copy-Item favlist.fav dist/
+          Copy-Item hotkey.txt dist/
+
       - name: Upload DLL + desktop exe + starter data
         uses: actions/upload-artifact@v4
         with:
-          name: TeleportHackDX-win32
-          path: |
-            build/bin/Release/TeleportHackDX.dll
-            build/bin/Release/TeleportHackDesktop.exe
-            favlist.fav
-            hotkey.txt
+          name: ${{ steps.vars.outputs.artifact_name }}
+          path: dist/*
           if-no-files-found: error

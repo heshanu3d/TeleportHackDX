@@ -17,7 +17,9 @@
 #include "imgui.h"
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
+#include "repository/settings_repository.h"
 #include "ui/app.h"
+#include "util/paths.h"
 
 #pragma comment(lib, "d3d9.lib")
 
@@ -105,13 +107,23 @@ LRESULT WINAPI WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 } // namespace
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
+    // Read just the window bounds up front (App::initialize() does its own
+    // full settings load later, once it knows the window handle) so the
+    // OS window is created at whatever size/position the user left it.
+    th::SettingsRepository bounds_repo(th::resolve_path("settings.json"));
+    th::Settings initial = bounds_repo.load();
+    int start_x = initial.window_x >= 0 ? initial.window_x : 100;
+    int start_y = initial.window_y >= 0 ? initial.window_y : 100;
+    int start_w = initial.window_width > 0 ? initial.window_width : 500;
+    int start_h = initial.window_height > 0 ? initial.window_height : 900;
+
     WNDCLASSEXA wc = {sizeof(wc),  CS_CLASSDC, WndProc, 0L,      0L,
                        hInstance,  nullptr,    nullptr, nullptr, nullptr,
                        "TeleportHackDesktopWndClass", nullptr};
     RegisterClassExA(&wc);
     HWND hwnd = CreateWindowA(wc.lpszClassName, "TeleportHack Desktop (Attach mode)",
-                               WS_OVERLAPPEDWINDOW, 100, 100, 500, 900, nullptr, nullptr,
-                               wc.hInstance, nullptr);
+                               WS_OVERLAPPEDWINDOW, start_x, start_y, start_w, start_h, nullptr,
+                               nullptr, wc.hInstance, nullptr);
 
     if (!CreateDeviceD3D(hwnd)) {
         CleanupDeviceD3D();
@@ -200,6 +212,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         }
         HRESULT result = g_pd3dDevice->Present(nullptr, nullptr, nullptr, nullptr);
         if (result == D3DERR_DEVICELOST) g_device_lost = true;
+    }
+
+    // Persist wherever the user ended up leaving the window.
+    RECT rect;
+    if (GetWindowRect(hwnd, &rect)) {
+        g_app.set_window_bounds(rect.left, rect.top, rect.right - rect.left,
+                                 rect.bottom - rect.top);
     }
 
     g_app.shutdown();

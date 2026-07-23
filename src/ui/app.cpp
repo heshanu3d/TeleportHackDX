@@ -185,6 +185,13 @@ bool App::on_wndproc(UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
     return false;
 }
 
+void App::set_window_bounds(int x, int y, int width, int height) {
+    settings_.window_x = x;
+    settings_.window_y = y;
+    settings_.window_width = width;
+    settings_.window_height = height;
+}
+
 void App::shutdown() {
     std::string error;
     if (!settings_repo_.save(settings_, error)) {
@@ -197,9 +204,43 @@ void App::shutdown() {
 // Rendering
 
 void App::render() {
-    ImGui::SetNextWindowSize(ImVec2(460, 780), ImGuiCond_FirstUseEver);
-    ImGui::Begin(mode_ == BackendMode::InProcess ? "TeleportHack DX"
-                                                  : "TeleportHack DX (Desktop / Attach)");
+    const char* title =
+        mode_ == BackendMode::InProcess ? "TeleportHack DX" : "TeleportHack DX (Desktop / Attach)";
+
+    if (mode_ == BackendMode::InProcess) {
+        // Floating, movable/resizable panel over the game. Restore last
+        // saved position/size (if any), then capture the live geometry
+        // every frame so it's ready to persist on shutdown() -- no
+        // separate "moved"/"resized" event needed.
+        if (settings_.window_x >= 0 && settings_.window_y >= 0) {
+            ImGui::SetNextWindowPos(ImVec2(static_cast<float>(settings_.window_x),
+                                            static_cast<float>(settings_.window_y)),
+                                     ImGuiCond_FirstUseEver);
+        }
+        ImGui::SetNextWindowSize(
+            ImVec2(static_cast<float>(settings_.window_width),
+                   static_cast<float>(settings_.window_height)),
+            ImGuiCond_FirstUseEver);
+        ImGui::Begin(title);
+
+        ImVec2 pos = ImGui::GetWindowPos();
+        ImVec2 size = ImGui::GetWindowSize();
+        settings_.window_x = static_cast<int>(pos.x);
+        settings_.window_y = static_cast<int>(pos.y);
+        settings_.window_width = static_cast<int>(size.x);
+        settings_.window_height = static_cast<int>(size.y);
+    } else {
+        // Desktop build: the *OS* window (see src/desktop/main.cpp) is
+        // what gets resized/moved by the user and persisted; pin the
+        // ImGui content to fill it exactly, single-window-app style.
+        ImGuiIO& io = ImGui::GetIO();
+        ImGui::SetNextWindowPos(ImVec2(0, 0));
+        ImGui::SetNextWindowSize(io.DisplaySize);
+        ImGui::Begin(title, nullptr,
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
+                         ImGuiWindowFlags_NoBringToFrontOnFocus);
+    }
 
     if (mode_ == BackendMode::Attach) {
         render_process_list();
