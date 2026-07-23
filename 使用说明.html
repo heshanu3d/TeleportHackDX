@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>TeleportHackDX 使用说明</title>
+<style>
+  :root {
+    --accent: #2b6cb0;
+    --accent-light: #ebf4fb;
+    --border: #d9e2ec;
+    --code-bg: #f6f8fa;
+    --warn-bg: #fff8e6;
+    --warn-border: #f0c36d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: #ffffff;
+    color: #1a1a1a;
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", Arial, sans-serif;
+    line-height: 1.7;
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+  h1 {
+    font-size: 28px;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+  }
+  h1 .sub {
+    display: block;
+    font-size: 14px;
+    font-weight: normal;
+    color: #666;
+    margin-top: 6px;
+  }
+  h2 {
+    font-size: 20px;
+    color: var(--accent);
+    margin-top: 44px;
+    border-left: 5px solid var(--accent);
+    padding-left: 10px;
+  }
+  h3 { font-size: 16px; margin-top: 28px; }
+  .step-num {
+    display: inline-block;
+    width: 26px; height: 26px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 26px;
+    font-size: 14px;
+    margin-right: 8px;
+  }
+  code, pre {
+    font-family: Consolas, "Courier New", monospace;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+  }
+  code { padding: 1px 6px; font-size: 0.92em; }
+  pre {
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 14px 0 20px;
+    font-size: 14.5px;
+  }
+  th, td {
+    border: 1px solid var(--border);
+    padding: 8px 12px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: var(--accent-light); }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .card {
+    background: var(--accent-light);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 16px 0;
+  }
+  .warn {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+  }
+  .warn::before { content: "⚠️ 注意："; font-weight: bold; }
+  ul, ol { padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--accent); }
+  footer {
+    margin-top: 60px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12.5px;
+    color: #888;
+  }
+  .toc {
+    background: #fafbfc;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 24px;
+  }
+  .toc a { display: block; padding: 3px 0; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+
+<h1>TeleportHackDX 使用说明
+  <span class="sub">DirectX9 + ImGui 内嵌界面版 TeleportHack — 构建、注入与使用全流程</span>
+</h1>
+
+<div class="toc">
+  <a href="#overview">1. 这是什么</a>
+  <a href="#prepare">2. 准备工作（需要一台 Windows 机器）</a>
+  <a href="#download">3. 获取产物（CI 构建 or 本地编译）</a>
+  <a href="#layout">4. 整理文件目录</a>
+  <a href="#inject">5. 注入到 WoW.exe</a>
+  <a href="#usage">6. 界面使用说明</a>
+  <a href="#files">7. 数据文件格式（favlist.fav / hotkey.txt / settings.json）</a>
+  <a href="#troubleshoot">8. 常见问题排查</a>
+</div>
+
+<h2 id="overview">1. 这是什么</h2>
+<p>
+  <code>TeleportHackDX</code> 是 <code>TeleportHackOnVanilla</code>（原 AutoIt 版本）的完整 C++/ImGui 移植版。
+  它不再是一个外部 AutoIt/Python 进程通过 <code>ReadProcessMemory</code> 远程读写 WoW 内存，
+  而是一个被<strong>注入进 WoW.exe 进程内部</strong>的 DLL：它 Hook 住 Direct3D9 的
+  <code>EndScene</code> / <code>Reset</code>，直接在游戏画面上绘制一个 Dear ImGui 界面，
+  和 <a href="https://github.com/AzDeltaQQ/WoW3.3.5aDirectXHookWithGui" target="_blank">AzDeltaQQ/WoW3.3.5aDirectXHookWithGui</a> 参考项目使用相同的 Hook 方式。
+</p>
+<p>支持的客户端版本：<strong>1.12.1（Vanilla）、1.12.3（Vanilla）、3.3.5a（WLK）</strong>，均为 32 位客户端。</p>
+
+<h2 id="prepare">2. 准备工作（需要一台 Windows 机器）</h2>
+<div class="card">
+  这个 DLL 必须运行在真实的 Windows 进程内部（Hook DirectX9），<strong>无法在 Linux/Ubuntu 上运行</strong>，
+  也不建议用 Wine（Wine 下 DirectX9 Hook 和游戏客户端本身兼容性都不可靠）。你需要：
+  <ul>
+    <li>一台 Windows 10/11 物理机，或者</li>
+    <li>一台 Windows 虚拟机（VMware / VirtualBox / 云端 Windows VM 均可）</li>
+  </ul>
+  在这台机器上安装好目标版本的 WoW 客户端（32 位）。
+</div>
+
+<h2 id="download">3. 获取产物</h2>
+<h3>方式 A：直接下载 CI 构建产物（推荐，无需装 Visual Studio）</h3>
+<ol>
+  <li>打开仓库 Actions 页面：
+    <a href="https://github.com/heshanu3d/TeleportHackDX/actions" target="_blank">
+      https://github.com/heshanu3d/TeleportHackDX/actions</a>
+  </li>
+  <li>点击最新一次状态为绿色 ✅ 的 <code>build</code> workflow run</li>
+  <li>页面下方 <strong>Artifacts</strong> 区域下载 <code>TeleportHackDX-win32.zip</code></li>
+  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>favlist.fav</code>、<code>hotkey.txt</code></li>
+</ol>
+
+<h3>方式 B：本地用 Visual Studio 编译</h3>
+<pre>git clone git@github.com:heshanu3d/TeleportHackDX.git
+cd TeleportHackDX
+mkdir build &amp;&amp; cd build
+cmake -A Win32 ..
+cmake --build . --config Release
+# 产物在 build\bin\Release\TeleportHackDX.dll</pre>
+<p>需要 Visual Studio 2019+ 和 CMake 3.15+；<strong>必须编译为 32 位（Win32）</strong>，
+   因为 WoW 这几个版本客户端都是 32 位程序。不需要额外安装老版 DirectX SDK。</p>
+
+<h2 id="layout">4. 整理文件目录</h2>
+<p>
+  把下面这些文件放在<strong>同一个文件夹</strong>里（这个文件夹可以在磁盘任意位置，
+  <strong>不需要和 WoW.exe 放一起</strong>）：
+</p>
+<pre>C:\WowHack\
+├── TeleportHackDX.dll
+├── favlist.fav
+└── hotkey.txt</pre>
+<div class="warn">
+  为什么必须放一起？因为这个 DLL 被注入进游戏进程后，没有常规意义上的"当前工作目录"。
+  代码里（<code>src/util/paths.cpp</code>）会在运行时反查"自己这个 DLL 文件在磁盘上的哪个目录"，
+  然后固定去这个目录下寻找 <code>favlist.fav</code> / <code>hotkey.txt</code> / <code>settings.json</code>。
+  也就是说这三个文件跟着 DLL 走，跟 WoW 装在哪里没有关系。
+</div>
+
+<h3>你的注入工具放这里</h3>
+<p>
+  仓库里预留了 <code>TeleportHackDX/dll_injector/</code> 目录，你可以把下载好的注入工具
+  （见下一节）放进去，方便和这个项目放在一起管理。
+</p>
+
+<h2 id="inject">5. 注入到 WoW.exe</h2>
+<ol>
+  <li><span class="step-num">1</span>启动 WoW 客户端（对应版本，32 位），进到角色选择界面或者进入游戏世界都可以
+    ——只要窗口和 D3D9 设备已经创建即可。</li>
+  <li><span class="step-num">2</span>选一个通用 DLL 注入工具（任选其一，放进
+    <code>dll_injector/</code> 目录）：
+    <table>
+      <tr><th>工具</th><th>特点</th><th>操作方式</th></tr>
+      <tr>
+        <td><strong>System Informer</strong><br/>（原 Process Hacker，推荐）</td>
+        <td>免费开源，界面直观，日常最常用的进程工具之一</td>
+        <td>右键 <code>WoW.exe</code> 进程 → <em>Miscellaneous</em> → <em>Inject DLL...</em> → 选择 <code>TeleportHackDX.dll</code></td>
+      </tr>
+      <tr>
+        <td><strong>Extreme Injector</strong></td>
+        <td>专用注入器，界面简单，新手友好</td>
+        <td>选中 WoW 进程 → 浏览选择 DLL → 注入方式保持默认 <code>LoadLibrary</code> → 点击 Inject</td>
+      </tr>
+      <tr>
+        <td><strong>Xenos</strong></td>
+        <td>功能较全的注入器</td>
+        <td>操作流程类似 Extreme Injector</td>
+      </tr>
+    </table>
+    Cheat Engine 自带的注入功能也可以用，但它 README 里提到的驱动改名技巧是针对
+    带反作弊驱动的正版游戏的，这几个怀旧服/私服客户端一般不需要。
+  </li>
+  <li><span class="step-num">3</span>注入成功后，游戏内按 <strong>Win + Insert</strong> 显示/隐藏悬浮界面。</li>
+</ol>
+
+<h2 id="usage">6. 界面使用说明</h2>
+<p>界面布局完全对应原 AutoIt/Python 版本的窗口结构：</p>
+<table>
+  <tr><th>区域</th><th>说明</th></tr>
+  <tr><td><strong>client 下拉框</strong></td><td>选择当前客户端版本：1.12.1 / 1.12.3 / 3.3.5，默认 3.3.5，务必先选对再传送</td></tr>
+  <tr><td><strong>分类 / 搜索</strong></td><td>按描述前缀（<code>-</code>之前的部分）分类筛选，搜索框按描述模糊匹配</td></tr>
+  <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z；单击选中一行，双击直接传送</td></tr>
+  <tr><td><strong>描述输入框</strong></td><td>新增/编辑传送点时填写描述文本</td></tr>
+  <tr><td><strong>step 勾选框</strong></td><td>勾选后传送变为"分步平滑移动"，不勾选则瞬间传送</td></tr>
+  <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
+  <tr><td><strong>插前 / 插后 / 编辑 / 删除</strong></td><td>基于当前选中行 + 描述输入框 + 当前读取到的角色坐标，插入/编辑/删除该分类下的传送点</td></tr>
+  <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt</td></tr>
+  <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
+  <tr><td><strong>Speed 行</strong></td><td>设置移动速度（仅 3.3.5 支持，1.12.x 灰色不可用）</td></tr>
+  <tr><td><strong>Import / Export</strong></td><td>导入替换全部 / 合并去重导入 / 导出到指定 <code>.fav</code> 文件（弹出系统文件选择框）</td></tr>
+  <tr><td><strong>Settings</strong></td><td>调整分步移动的步距/间隔、favlist.fav 和 hotkey.txt 的路径</td></tr>
+  <tr><td><strong>日志区</strong></td><td>所有操作结果、错误信息都会打印在这里</td></tr>
+</table>
+<p>
+  另外，<code>hotkey.txt</code> 里配置的组合键（如 <code>^1</code> = Ctrl+1）无论悬浮界面是否显示都会生效，
+  这一点和原版 AutoIt 的全局热键行为一致。
+</p>
+
+<h2 id="files">7. 数据文件格式</h2>
+<h3>favlist.fav</h3>
+<pre>描述#x#y#z
+斯坦索姆-入口#1234.5#-678.9#12.3</pre>
+<p>描述里 <code>-</code> 前面的部分会被当作分类名，比如上面这行会归到"斯坦索姆"分类下。</p>
+
+<h3>hotkey.txt</h3>
+<pre># 以 # 开头的行是注释
+^1
+斯坦索姆-入口
+!a
+斯坦索姆-出口</pre>
+<p>两行一组：第一行是组合键（<code>^</code>=Ctrl，<code>!</code>=Alt，<code>+</code>=Shift），第二行是要跳转到的传送点描述（必须和 favlist.fav 里的描述完全一致）。</p>
+
+<h3>settings.json</h3>
+<p>首次运行会自动生成在 DLL 同目录下，记录分步移动参数、上次选择的分类、速度值等，缺失或损坏时会自动回退到默认值，不会导致崩溃。</p>
+
+<h2 id="troubleshoot">8. 常见问题排查</h2>
+<ul>
+  <li><strong>注入后没反应 / 按 Win+Insert 没有界面：</strong>
+    确认 DLL 真的被加载了（在 System Informer 里查看该进程的 Loaded Modules 列表里能不能找到
+    <code>TeleportHackDX.dll</code>）；确认游戏窗口正在用 D3D9 渲染（不是 D3D11/OpenGL 私服客户端）；
+    确认没被杀毒软件/Windows Defender 隔离（游戏外挂类工具很容易被误报，需要加白名单）。
+  </li>
+  <li><strong>中文描述显示成方块/乱码：</strong>
+    程序运行时会自动从 <code>C:\Windows\Fonts</code> 加载微软雅黑/宋体等中文字体；
+    如果系统没有这些字体文件，会退回 ImGui 内置的纯 ASCII 字体，中文无法显示。
+  </li>
+  <li><strong>点击 AntiJump/AutoLoot 等按钮提示 "unknown byte state"：</strong>
+    说明当前客户端在对应内存地址的字节内容和预期的两种已知状态（开/关）都不一致，
+    可能是客户端版本/补丁不完全匹配 <code>src/domain/versions.cpp</code> 里写死的偏移，
+    为了安全起见程序会拒绝写入而不是覆盖成未知内容。
+  </li>
+  <li><strong>Speed 按钮点了没反应：</strong>
+    Speed 只在 3.3.5 客户端上支持，1.12.1/1.12.3 客户端本身没有这个可写字段。
+  </li>
+  <li><strong>想确认最新一次 CI 构建是否成功：</strong>
+    <a href="https://github.com/heshanu3d/TeleportHackDX/actions" target="_blank">
+      https://github.com/heshanu3d/TeleportHackDX/actions</a>
+  </li>
+</ul>
+
+<footer>
+  项目仓库：<a href="https://github.com/heshanu3d/TeleportHackDX" target="_blank">github.com/heshanu3d/TeleportHackDX</a>　|　
+  原始项目：<code>TeleportHackOnVanilla</code>（AutoIt / Python 版本）　|　
+  参考 Hook 方案：<a href="https://github.com/AzDeltaQQ/WoW3.3.5aDirectXHookWithGui" target="_blank">AzDeltaQQ/WoW3.3.5aDirectXHookWithGui</a>
+</footer>
+
+</body>
+</html>

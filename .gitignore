@@ -3,3 +3,8 @@ build/
 *.vcxproj*
 .vs/
 out/
+
+# Third-party injector tools the user downloads locally -- keep the
+# placeholder README but not whatever binaries get dropped in here.
+dll_injector/*
+!dll_injector/README.txt
