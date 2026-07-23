@@ -1,18 +1,27 @@
-// Main in-game overlay: owns every service and renders the ImGui frame
-// that replaces TeleportHackOnVanilla's AutoIt/Qt window.
+// Main overlay UI: owns every service and renders the ImGui frame that
+// replaces TeleportHackOnVanilla's AutoIt/Qt window.
 //
 // Layout intentionally mirrors
 // TeleportHackOnVanilla/win/src/teleport_hack/presentation/main_window.py:
-// category combo -> search -> favourites table -> description input ->
-// toggles row -> CRUD rows -> Teleport button -> speed row -> log.
+// [process list, Attach mode only] -> category combo -> search ->
+// favourites table -> description input -> toggles row -> CRUD rows ->
+// Teleport button -> speed row -> log.
 //
-// The "WoW 进程" (attach to PID) section from the Python/AutoIt tools is
-// dropped: this DLL always operates on the process it's injected into.
+// This class is shared verbatim between two executables (see
+// CMakeLists.txt): the injected DirectX hook DLL (BackendMode::InProcess,
+// operates on the process it's injected into) and the standalone desktop
+// TeleportHackDesktop.exe (BackendMode::Attach, attaches to a separately
+// running WoW.exe over ReadProcessMemory/WriteProcessMemory -- handy for
+// iterating on/verifying the UI and favlist logic without re-injecting).
+// The MemoryBackend abstraction is what makes this possible: every
+// service only ever talks to a `MemoryBackend&`, never caring whether
+// reads/writes are in-process pointer derefs or cross-process API calls.
 #pragma once
 
 #include <Windows.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -26,40 +35,48 @@
 #include "services/hotkey_service.h"
 #include "services/teleport_service.h"
 #include "ui/log_view.h"
+#include "util/process_list.h"
 
 namespace th {
+
+enum class BackendMode {
+    InProcess, // DLL injected into the game process itself
+    Attach,    // standalone desktop app, attaches to a chosen WoW.exe PID
+};
 
 class App {
 public:
     App();
 
-    // Called once the game window handle is known (from the D3D9 device's
-    // creation parameters). Loads settings/favourites/hotkeys and switches
-    // on the configured/default version.
-    void initialize(HWND game_hwnd);
+    // Called once the overlay's window handle is known (from the D3D9
+    // device's creation parameters in the DLL, or our own window in the
+    // desktop build). Loads settings/favourites/hotkeys and switches on
+    // the configured/default version.
+    void initialize(HWND owner_hwnd, BackendMode mode);
 
-    // Called every frame between ImGui::NewFrame() and ImGui::Render() by
-    // the D3D9 hook, only while the overlay is visible.
+    // Called every frame between ImGui::NewFrame() and ImGui::Render(),
+    // only while the overlay is visible.
     void render();
 
     // Called every frame regardless of overlay visibility, to advance any
     // in-flight step-teleport.
     void tick();
 
-    // Forward WM_HOTKEY from the hooked WndProc. Returns true if handled.
+    // Forward WM_HOTKEY from the hooked/owned WndProc. Returns true if handled.
     bool on_wndproc(UINT msg, WPARAM wParam, LPARAM lParam);
 
-    // Persist settings + unregister hotkeys; call from DLL_PROCESS_DETACH /
-    // before unhooking.
+    // Persist settings + unregister hotkeys; call before tearing down
+    // ImGui/the hook/the window.
     void shutdown();
 
 private:
     HWND hwnd_ = nullptr;
+    BackendMode mode_ = BackendMode::InProcess;
     Settings settings_;
     SettingsRepository settings_repo_;
 
     const GameVersion* version_ = nullptr;
-    InProcessBackend backend_;
+    std::unique_ptr<MemoryBackend> backend_;
     std::optional<TeleportService> teleport_;
     std::optional<FeatureService> features_;
     TeleportStepSession step_session_;
@@ -81,11 +98,17 @@ private:
     char export_path_buf_[512] = {0};
     bool show_settings_ = false;
 
+    // Attach-mode only: process picker state.
+    std::vector<ProcessEntry> process_list_;
+    unsigned long selected_pid_ = 0;
+
     // ---- helpers ----
     void switch_version(const std::string& name);
     void reload_favourites();
     void reload_hotkeys();
     void log(const std::string& msg);
+    void reload_process_list();
+    void attach_to_pid(unsigned long pid);
 
     std::vector<TeleportPoint> displayed_points() const;
     std::optional<TeleportPoint> current_point() const;
@@ -95,6 +118,7 @@ private:
                       const std::function<bool(bool&)>& fn);
 
     // ImGui section renderers
+    void render_process_list();
     void render_version_row();
     void render_category_and_search();
     void render_table();

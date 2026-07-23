@@ -34,13 +34,15 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC vendor/imgui vendor/imgui/backends)
 
-# --------------------------------------------------------------- main DLL
-set(SOURCES
-    src/dllmain.cpp
-    src/core/hook.cpp
+# --------------------------------------------------------- shared core lib
+# Domain/services/repository/memory-backends/UI: identical source shared by
+# both the injected DLL and the standalone desktop app (see src/ui/app.h
+# for why -- MemoryBackend abstracts away in-process vs. attach-over-RPM).
+set(CORE_SOURCES
     src/domain/models.cpp
     src/domain/versions.cpp
     src/memory/inprocess_backend.cpp
+    src/memory/outofprocess_backend.cpp
     src/services/teleport_service.cpp
     src/services/feature_service.cpp
     src/services/favourites_service.cpp
@@ -51,26 +53,41 @@ set(SOURCES
     src/repository/settings_repository.cpp
     src/ui/app.cpp
     src/util/paths.cpp
+    src/util/process_list.cpp
 )
 
-add_library(TeleportHackDX SHARED ${SOURCES})
+add_library(th_core STATIC ${CORE_SOURCES})
+target_include_directories(th_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+# PUBLIC: app.cpp calls into imgui/comdlg32 symbols that only get resolved
+# once a final DLL/EXE links against th_core, so both must propagate to
+# whichever target consumes th_core.
+target_link_libraries(th_core PUBLIC imgui comdlg32)
 
-target_include_directories(TeleportHackDX PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/src
+if(MSVC)
+    target_compile_options(th_core PRIVATE /W4 /permissive-)
+endif()
+
+# --------------------------------------------------------------- main DLL
+# Injected into WoW.exe; hooks D3D9 EndScene/Reset via MinHook.
+add_library(TeleportHackDX SHARED
+    src/dllmain.cpp
+    src/core/hook.cpp
 )
-
-target_link_libraries(TeleportHackDX PRIVATE
-    imgui
-    minhook
-    d3d9
-    comdlg32
-)
-
-# /W4 /permissive- scoped to just our own code -- vendored imgui/minhook
-# build at their normal warning level (they have a handful of harmless
-# upstream warnings that aren't worth fighting).
+target_link_libraries(TeleportHackDX PRIVATE th_core minhook d3d9)
 if(MSVC)
     target_compile_options(TeleportHackDX PRIVATE /W4 /permissive-)
+endif()
+
+# ------------------------------------------------------- standalone desktop
+# Ordinary Win32 window + its own D3D9 device; attaches to a separately
+# running WoW.exe instead of being injected. Lets the UI/favlist/hotkey
+# logic be exercised without re-injecting for every change.
+add_executable(TeleportHackDesktop WIN32
+    src/desktop/main.cpp
+)
+target_link_libraries(TeleportHackDesktop PRIVATE th_core d3d9)
+if(MSVC)
+    target_compile_options(TeleportHackDesktop PRIVATE /W4 /permissive-)
 endif()
 
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK

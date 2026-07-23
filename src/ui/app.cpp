@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "imgui.h"
+#include "memory/outofprocess_backend.h"
 #include "repository/hotkey_config_repository.h"
 #include "util/paths.h"
 
@@ -48,8 +49,13 @@ App::App()
       favourites_(FavlistRepository("favlist.fav")),
       porter_(favourites_) {}
 
-void App::initialize(HWND game_hwnd) {
-    hwnd_ = game_hwnd;
+void App::initialize(HWND owner_hwnd, BackendMode mode) {
+    hwnd_ = owner_hwnd;
+    mode_ = mode;
+    backend_ = (mode_ == BackendMode::InProcess)
+                   ? std::unique_ptr<MemoryBackend>(std::make_unique<InProcessBackend>())
+                   : std::unique_ptr<MemoryBackend>(std::make_unique<OutOfProcessBackend>());
+
     settings_repo_ = SettingsRepository(resolve_path("settings.json"));
     settings_ = settings_repo_.load();
 
@@ -66,6 +72,7 @@ void App::initialize(HWND game_hwnd) {
     switch_version(settings_.default_version);
     reload_favourites();
     reload_hotkeys();
+    if (mode_ == BackendMode::Attach) reload_process_list();
 
     log("initialized (" + (version_ ? version_->name : std::string("no version")) + ")");
 }
@@ -74,10 +81,27 @@ void App::switch_version(const std::string& name) {
     const GameVersion* v = find_version(name);
     if (!v) v = &all_versions().front();
     version_ = v;
-    teleport_.emplace(backend_, *version_);
-    features_.emplace(backend_, *version_);
+    teleport_.emplace(*backend_, *version_);
+    features_.emplace(*backend_, *version_);
     settings_.default_version = version_->name;
     log("using client profile: " + version_->name);
+}
+
+void App::reload_process_list() {
+    if (!version_) return;
+    process_list_ = list_processes_by_name(version_->executable);
+}
+
+void App::attach_to_pid(unsigned long pid) {
+    if (mode_ != BackendMode::Attach) return;
+    auto* oop = static_cast<OutOfProcessBackend*>(backend_.get());
+    if (oop->attach(pid)) {
+        selected_pid_ = pid;
+        log("attached to PID " + std::to_string(pid));
+    } else {
+        log("[error] failed to attach to PID " + std::to_string(pid) + " (GetLastError=" +
+            std::to_string(GetLastError()) + ")");
+    }
 }
 
 void App::reload_favourites() {
@@ -174,8 +198,13 @@ void App::shutdown() {
 
 void App::render() {
     ImGui::SetNextWindowSize(ImVec2(460, 780), ImGuiCond_FirstUseEver);
-    ImGui::Begin("TeleportHack DX");
+    ImGui::Begin(mode_ == BackendMode::InProcess ? "TeleportHack DX"
+                                                  : "TeleportHack DX (Desktop / Attach)");
 
+    if (mode_ == BackendMode::Attach) {
+        render_process_list();
+        ImGui::Separator();
+    }
     render_version_row();
     ImGui::Separator();
     render_category_and_search();
@@ -193,6 +222,38 @@ void App::render() {
     render_settings_popup();
 
     ImGui::End();
+}
+
+void App::render_process_list() {
+    bool attached = backend_ && backend_->is_attached();
+    ImGui::Text("WoW \xe8\xbf\x9b\xe7\xa8\x8b:"); // WoW 进程:
+    ImGui::SameLine();
+    if (attached) {
+        auto* oop = static_cast<OutOfProcessBackend*>(backend_.get());
+        ImGui::TextColored(ImVec4(0.3f, 0.8f, 0.3f, 1.0f), "attached (PID %lu)", oop->pid());
+    } else {
+        ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1.0f), "not attached");
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Refresh")) reload_process_list();
+
+    ImGui::BeginChild("##proclist", ImVec2(0, 70), true);
+    if (process_list_.empty()) {
+        ImGui::TextDisabled("(no %s found)", version_ ? version_->executable.c_str() : "WoW.exe");
+    }
+    for (const auto& p : process_list_) {
+        bool selected = (p.pid == selected_pid_);
+        char label[64];
+        std::snprintf(label, sizeof(label), "%lu  -  %s", p.pid, p.exe_name.c_str());
+        if (ImGui::Selectable(label, selected, ImGuiSelectableFlags_AllowDoubleClick)) {
+            selected_pid_ = p.pid;
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) attach_to_pid(p.pid);
+        }
+    }
+    ImGui::EndChild();
+    if (ImGui::SmallButton("Attach")) {
+        if (selected_pid_ != 0) attach_to_pid(selected_pid_);
+    }
 }
 
 void App::render_version_row() {

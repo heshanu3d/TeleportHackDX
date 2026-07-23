@@ -17,12 +17,13 @@ jobs:
       - name: Build (Release)
         run: cmake --build build --config Release --parallel
 
-      - name: Upload DLL + starter data
+      - name: Upload DLL + desktop exe + starter data
         uses: actions/upload-artifact@v4
         with:
           name: TeleportHackDX-win32
           path: |
             build/bin/Release/TeleportHackDX.dll
+            build/bin/Release/TeleportHackDesktop.exe
             favlist.fav
             hotkey.txt
           if-no-files-found: error

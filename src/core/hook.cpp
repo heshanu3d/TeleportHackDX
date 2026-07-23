@@ -119,7 +119,7 @@ HRESULT APIENTRY HookedEndScene(LPDIRECT3DDEVICE9 pDevice) {
         oWndProc = reinterpret_cast<WNDPROC>(
             SetWindowLongPtr(params.hFocusWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc)));
 
-        g_app.initialize(params.hFocusWindow);
+        g_app.initialize(params.hFocusWindow, th::BackendMode::InProcess);
 
         g_initialized = true;
     }
