@@ -260,6 +260,12 @@ methodology" above for why two techniques are used):
    green for this change** and check
    https://github.com/heshanu3d/TeleportHackDX/actions before trusting it.
 
+**Confirmed green**: commit `29695e9`, CI run `30008276468` -- `Configure`,
+`Build (Release)`, and `Test (Release)` (i.e. `ctest` running
+`orientation_tests` for real on `windows-latest`, not just a Linux
+approximation) all succeeded, artifact
+`TeleportHackDX-0.1.0-g29695e9-win32` uploaded.
+
 ## Open user requests not yet addressed
 
 - Nothing outstanding as of this writing. The user had separately asked to
