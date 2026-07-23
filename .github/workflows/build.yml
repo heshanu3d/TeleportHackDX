@@ -17,6 +17,9 @@ jobs:
       - name: Build (Release)
         run: cmake --build build --config Release --parallel
 
+      - name: Test (Release)
+        run: ctest --test-dir build -C Release --output-on-failure
+
       - name: Compute version string
         id: vars
         shell: bash

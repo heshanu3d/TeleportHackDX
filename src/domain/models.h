@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cmath>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,13 @@ struct Position {
     double x = 0.0;
     double y = 0.0;
     double z = 0.0;
+
+    // Optional facing/orientation in radians. Only WoW 3.3.5 has a usable
+    // offset for this (player_base + pos_r, 0x7A8); 1.12.1/1.12.3 never
+    // populate it. A missing value means "preserve the player's current
+    // facing" -- this is NOT the same as an explicit orientation of 0, so
+    // the distinction must survive parsing/serialisation/dedup/writes.
+    std::optional<double> orientation;
 
     double distance_to(const Position& other) const {
         double dx = x - other.x, dy = y - other.y, dz = z - other.z;

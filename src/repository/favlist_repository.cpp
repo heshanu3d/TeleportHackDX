@@ -70,24 +70,56 @@ bool FavlistRepository::load(std::vector<TeleportPoint>& out, std::string& error
     ss << fh.rdbuf();
     std::vector<std::string> lines = split_lines(ss.str());
 
-    const size_t column_count = 4;
+    constexpr size_t old_column_count = 4; // desc, x, y, z
+    constexpr size_t new_column_count = 5; // desc, x, y, z, orientation
     size_t i = 0, n = lines.size();
     while (i < n) {
         std::vector<std::string> parts = split(lines[i], sep_);
-        if (parts.size() == column_count) {
+        if (parts.size() == old_column_count || parts.size() == new_column_count) {
             double x, y, z;
-            if (parse_double(parts[1], x) && parse_double(parts[2], y) &&
-                parse_double(parts[3], z)) {
-                out.push_back(TeleportPoint{parts[0], Position{x, y, z}});
+            bool coords_ok = parse_double(parts[1], x) && parse_double(parts[2], y) &&
+                              parse_double(parts[3], z);
+            bool orientation_ok = true;
+            std::optional<double> orientation;
+            if (coords_ok && parts.size() == new_column_count && !parts[4].empty()) {
+                double r;
+                if (parse_double(parts[4], r)) {
+                    orientation = r;
+                } else {
+                    orientation_ok = false; // malformed orientation: skip like a bad number
+                }
+            }
+            if (coords_ok && orientation_ok) {
+                out.push_back(TeleportPoint{parts[0], Position{x, y, z, orientation}});
             }
             ++i;
-        } else if (i + column_count - 1 < n) {
+        } else if (i + old_column_count - 1 < n) {
+            // Legacy multi-line record: desc / x / y / z, optionally
+            // followed by a 5th orientation line (empty or numeric). Peek
+            // at line i+4 to decide whether it belongs to this record or
+            // is the next record's description.
             double x, y, z;
             if (parse_double(lines[i + 1], x) && parse_double(lines[i + 2], y) &&
                 parse_double(lines[i + 3], z)) {
-                out.push_back(TeleportPoint{lines[i], Position{x, y, z}});
+                std::optional<double> orientation;
+                size_t consumed = old_column_count;
+                if (i + new_column_count - 1 < n) {
+                    const std::string& maybe_r = lines[i + new_column_count - 1];
+                    double r;
+                    if (maybe_r.empty()) {
+                        consumed = new_column_count;
+                    } else if (parse_double(maybe_r, r)) {
+                        orientation = r;
+                        consumed = new_column_count;
+                    }
+                    // else: line i+4 is the next record's description;
+                    // leave consumed at old_column_count.
+                }
+                out.push_back(TeleportPoint{lines[i], Position{x, y, z, orientation}});
+                i += consumed;
+            } else {
+                ++i; // malformed legacy candidate; keep scanning
             }
-            i += column_count;
         } else {
             break; // trailing junk
         }
@@ -109,7 +141,11 @@ int FavlistRepository::save(const std::vector<TeleportPoint>& points, std::strin
     int count = 0;
     for (const auto& pt : points) {
         fh << pt.description << sep_ << format_float(pt.position.x) << sep_
-           << format_float(pt.position.y) << sep_ << format_float(pt.position.z) << "\n";
+           << format_float(pt.position.y) << sep_ << format_float(pt.position.z) << sep_;
+        if (pt.position.orientation.has_value()) {
+            fh << format_float(*pt.position.orientation);
+        }
+        fh << "\n";
         ++count;
     }
     return count;

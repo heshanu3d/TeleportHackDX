@@ -30,7 +30,9 @@ public:
     int import_replace(const std::string& path, std::string& error) const;
 
     // Merges contents of `path` into current favourites, skipping exact
-    // (description, x, y, z) duplicates.
+    // (description, x, y, z, orientation) duplicates. A missing
+    // orientation and an explicit orientation of 0 are intentionally
+    // treated as distinct.
     bool import_merge(const std::string& path, MergeReport& report, std::string& error) const;
 
     MergeReport merge_points(const std::vector<TeleportPoint>& incoming) const;

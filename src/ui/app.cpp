@@ -149,9 +149,14 @@ void App::do_teleport(const Position& pos) {
         log("step-teleport started");
     } else {
         if (teleport_->write_position(pos)) {
-            char buf[128];
-            std::snprintf(buf, sizeof(buf), "teleported to (%.3f, %.3f, %.3f)", pos.x, pos.y,
-                          pos.z);
+            char buf[160];
+            if (pos.orientation.has_value()) {
+                std::snprintf(buf, sizeof(buf), "teleported to (%.3f, %.3f, %.3f, r=%.3f)", pos.x,
+                              pos.y, pos.z, *pos.orientation);
+            } else {
+                std::snprintf(buf, sizeof(buf), "teleported to (%.3f, %.3f, %.3f)", pos.x, pos.y,
+                              pos.z);
+            }
             log(buf);
         } else {
             log("[error] teleport failed: " + teleport_->last_error());
@@ -357,11 +362,12 @@ void App::render_table() {
     ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
                              ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable;
     ImVec2 outer_size(0.0f, ImGui::GetTextLineHeightWithSpacing() * 14);
-    if (ImGui::BeginTable("favourites", 4, flags, outer_size)) {
+    if (ImGui::BeginTable("favourites", 5, flags, outer_size)) {
         ImGui::TableSetupColumn("\xe6\x8f\x8f\xe8\xbf\xb0", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("x", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("y", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("z", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("r", ImGuiTableColumnFlags_WidthFixed, 48.0f);
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -388,6 +394,12 @@ void App::render_table() {
             ImGui::Text("%.3f", pt.position.y);
             ImGui::TableSetColumnIndex(3);
             ImGui::Text("%.3f", pt.position.z);
+            ImGui::TableSetColumnIndex(4);
+            if (pt.position.orientation.has_value()) {
+                ImGui::Text("%.3f", *pt.position.orientation);
+            } else {
+                ImGui::TextDisabled("-");
+            }
         }
         ImGui::EndTable();
     }

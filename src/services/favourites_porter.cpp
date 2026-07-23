@@ -1,15 +1,16 @@
 #include "services/favourites_porter.h"
 
+#include <optional>
 #include <set>
 #include <tuple>
 
 namespace th {
 
 namespace {
-using Signature = std::tuple<std::string, double, double, double>;
+using Signature = std::tuple<std::string, double, double, double, std::optional<double>>;
 
 Signature signature_of(const TeleportPoint& p) {
-    return {p.description, p.position.x, p.position.y, p.position.z};
+    return {p.description, p.position.x, p.position.y, p.position.z, p.position.orientation};
 }
 } // namespace
 

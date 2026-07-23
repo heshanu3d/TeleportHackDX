@@ -71,6 +71,7 @@ private:
     bool active_ = false;
     Position delta_{};
     Position cursor_{};
+    std::optional<double> target_orientation_;
     int steps_remaining_ = 0;
     double interval_sec_ = 0.04;
     double accum_sec_ = 0.0;

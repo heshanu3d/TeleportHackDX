@@ -1,8 +1,11 @@
 // Read/write the AutoIt-compatible favlist.fav file.
 //
-// Format (one teleport per line): "描述#x#y#z"
-// Legacy 4-line-per-record layout is tolerated on read, but save() always
-// emits the canonical single-line form.
+// Canonical format (one teleport per line): "描述#x#y#z#r" where `r` is an
+// optional orientation/facing in radians. `r` may be an empty field
+// (meaning "no orientation, preserve current facing" -- distinct from an
+// explicit `r=0`). The old 4-field format ("描述#x#y#z", no orientation)
+// and legacy 4/5-line-per-record layouts are all tolerated on read; save()
+// always emits the canonical 5-field single-line form.
 //
 // Ported from
 // TeleportHackOnVanilla/win/src/teleport_hack/infrastructure/repository/favlist.py

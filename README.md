@@ -29,6 +29,12 @@ layout rationale this is based on):
 
 - Favourites list (`favlist.fav`), category filter (derived from the
   `desc` prefix before `-`), description search, insert/append/edit/delete/add
+- Optional per-point orientation/facing (5th `favlist.fav` field, radians;
+  3.3.5 only). An empty field means "preserve current facing" -- distinct
+  from an explicit `0`. Old 4-field files keep loading unchanged; `save()`
+  always writes the canonical 5-field form. Step-teleport applies the
+  target facing once, on the final step, rather than every intermediate
+  step.
 - Instant teleport + smooth "step" teleport (non-blocking; advances once
   per rendered frame instead of `Sleep()`-blocking the game thread)
 - Hotkey bindings (`hotkey.txt`, `^`/`!`/`+` modifier syntax) via Win32
@@ -64,6 +70,8 @@ src/
 vendor/
   imgui/                  vendored Dear ImGui (core + dx9/win32 backends)
   minhook/                vendored MinHook (32-bit subset, TeleportHackDX.dll only)
+tests/
+  orientation_tests.cpp   favlist.fav format + 3.3.5 pos_r compatibility tests (CTest)
 favlist.fav, hotkey.txt   starter data copied from TeleportHackOnVanilla
 使用说明.html              full Chinese walkthrough (build/inject/desktop-mode/troubleshooting)
 ```
@@ -82,6 +90,7 @@ Requires Visual Studio 2019+ and CMake 3.15+. **Must be built 32-bit**
 mkdir build && cd build
 cmake -A Win32 ..
 cmake --build . --config Release
+ctest -C Release --output-on-failure
 ```
 
 Output: `build/bin/Release/TeleportHackDX.dll` and
@@ -125,6 +134,7 @@ push.
   the byte-patch toggles may report "unknown byte state" and refuse to
   act rather than write garbage.
 - Build-verified: CI builds both targets on `windows-latest` with
-  `/W4 /permissive-` and zero warnings from our own code. The DLL has also
+  `/W4 /permissive-` and zero warnings from our own code, and runs
+  `tests/orientation_tests.cpp` via CTest. The DLL has also
   been injected into a live WoW client and confirmed working end-to-end
   (overlay renders, teleport functions).

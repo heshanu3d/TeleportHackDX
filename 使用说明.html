@@ -302,7 +302,7 @@ cmake --build . --config Release
   <tr><th>区域</th><th>说明</th></tr>
   <tr><td><strong>client 下拉框</strong></td><td>选择当前客户端版本：1.12.1 / 1.12.3 / 3.3.5，默认 3.3.5，务必先选对再传送</td></tr>
   <tr><td><strong>分类 / 搜索</strong></td><td>按描述前缀（<code>-</code>之前的部分）分类筛选，搜索框按描述模糊匹配</td></tr>
-  <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z；单击选中一行，双击直接传送</td></tr>
+  <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z/r（r=朝向，无朝向时显示"-"）；单击选中一行，双击直接传送</td></tr>
   <tr><td><strong>描述输入框</strong></td><td>新增/编辑传送点时填写描述文本</td></tr>
   <tr><td><strong>step 勾选框</strong></td><td>勾选后传送变为"分步平滑移动"，不勾选则瞬间传送</td></tr>
   <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
@@ -321,9 +321,18 @@ cmake --build . --config Release
 
 <h2 id="files">7. 数据文件格式</h2>
 <h3>favlist.fav</h3>
-<pre>描述#x#y#z
-斯坦索姆-入口#1234.5#-678.9#12.3</pre>
-<p>描述里 <code>-</code> 前面的部分会被当作分类名，比如上面这行会归到"斯坦索姆"分类下。</p>
+<pre>描述#x#y#z#r
+斯坦索姆-入口#1234.5#-678.9#12.3#
+斯坦索姆-出口贴脸#1234.6#-678.8#12.3#1.857</pre>
+<p>描述里 <code>-</code> 前面的部分会被当作分类名，比如上面第一行会归到"斯坦索姆"分类下。</p>
+<p>
+  第 5 个字段 <code>r</code> 是朝向（弧度），<strong>仅 3.3.5 客户端支持</strong>，1.12.1/1.12.3
+  没有对应的内存偏移，永远读不到也不会写入。<code>r</code> 为空（行尾直接是 <code>#</code>）
+  表示"不改变当前朝向"——这和显式写 <code>r=0</code>（朝向正北）是两回事，程序会区分对待，
+  包括去重合并时也会把"无朝向"和"朝向=0"当成不同的记录。旧的 4 字段格式（没有第 5 个 <code>#</code>）
+  仍然兼容，加载后朝向为空；执行"保存"后会统一规范化成 5 字段格式。
+  分步传送（勾选 step）时，朝向只会在最后一步生效，不会导致中途转向。
+</p>
 
 <h3>hotkey.txt</h3>
 <pre># 以 # 开头的行是注释

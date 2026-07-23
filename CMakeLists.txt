@@ -96,5 +96,16 @@ if(MSVC)
     target_compile_options(TeleportHackDesktop PRIVATE /W4 /permissive-)
 endif()
 
+# --------------------------------------------------------------- tests
+enable_testing()
+add_executable(orientation_tests
+    tests/orientation_tests.cpp
+)
+target_link_libraries(orientation_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(orientation_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME orientation_compatibility COMMAND orientation_tests)
+
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK
 # (June 2010) required, unlike some older tutorials.

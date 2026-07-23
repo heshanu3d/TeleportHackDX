@@ -51,7 +51,16 @@ bool TeleportService::read_position(Position& out) {
             last_error_ = "failed to read position floats";
             return false;
         }
-        out = Position{x, y, z};
+        std::optional<double> orientation;
+        if (version_.pos_r) {
+            float r;
+            if (!backend_.read_float(base + version_.pos_r, r)) {
+                last_error_ = "failed to read orientation float";
+                return false;
+            }
+            orientation = static_cast<double>(r);
+        }
+        out = Position{x, y, z, orientation};
         return true;
     }
 
@@ -63,10 +72,15 @@ bool TeleportService::read_position(Position& out) {
         return false;
     }
     // 1.12.x engine reports Y as X internally; normalise to logical (x,y,z).
+    // Neither 1.12 profile has a usable orientation offset (pos_r == 0),
+    // so orientation is always left unset here -- matches the AutoIt
+    // original, which always returns an empty r for these versions.
     if (version_.is_vanilla()) {
-        out = Position{static_cast<double>(y), static_cast<double>(x), static_cast<double>(z)};
+        out = Position{static_cast<double>(y), static_cast<double>(x), static_cast<double>(z),
+                       std::nullopt};
     } else {
-        out = Position{static_cast<double>(x), static_cast<double>(y), static_cast<double>(z)};
+        out = Position{static_cast<double>(x), static_cast<double>(y), static_cast<double>(z),
+                       std::nullopt};
     }
     return true;
 }
@@ -79,7 +93,13 @@ bool TeleportService::write_position(const Position& pos) {
         bool ok = backend_.write_float(base + version_.pos_x, static_cast<float>(pos.y)) &&
                   backend_.write_float(base + version_.pos_y, static_cast<float>(pos.x)) &&
                   backend_.write_float(base + version_.pos_z, static_cast<float>(pos.z));
-        if (!ok) last_error_ = "failed to write position floats";
+        // Orientation is only written when the point actually requests one
+        // (a missing value means "preserve current facing") and only on
+        // clients that expose pos_r at all.
+        if (ok && version_.pos_r && pos.orientation.has_value()) {
+            ok = backend_.write_float(base + version_.pos_r, static_cast<float>(*pos.orientation));
+        }
+        if (!ok) last_error_ = "failed to write position/orientation floats";
         return ok;
     }
 
@@ -111,10 +131,16 @@ bool TeleportService::teleport_step(const Position& target, const StepConfig& cf
     double dz = (target.z - current.z) / steps;
 
     Position cursor = current;
+    // Don't force a facing change on every intermediate step -- apply the
+    // target's orientation once, together with the final position, so the
+    // walk is smooth and only "snaps" to face the requested direction (if
+    // any) at the very end.
+    cursor.orientation.reset();
     for (int i = 0; i < steps; ++i) {
         cursor.x += dx;
         cursor.y += dy;
         cursor.z += dz;
+        if (i == steps - 1) cursor.orientation = target.orientation;
         if (!write_position(cursor)) return false;
         if (cfg.sleep_between_steps_sec > 0) {
             if (sleeper) {
@@ -147,6 +173,8 @@ void TeleportStepSession::start(TeleportService& svc, const Position& target,
     delta_.y = (target.y - current.y) / steps;
     delta_.z = (target.z - current.z) / steps;
     cursor_ = current;
+    cursor_.orientation.reset(); // applied once, on the final tick only
+    target_orientation_ = target.orientation;
     steps_remaining_ = steps;
     interval_sec_ = cfg.sleep_between_steps_sec > 0 ? cfg.sleep_between_steps_sec : 0.0;
     accum_sec_ = interval_sec_; // fire the first step immediately
@@ -172,6 +200,7 @@ bool TeleportStepSession::tick(TeleportService& svc) {
         cursor_.x += delta_.x;
         cursor_.y += delta_.y;
         cursor_.z += delta_.z;
+        if (steps_remaining_ == 1) cursor_.orientation = target_orientation_;
         svc.write_position(cursor_); // best-effort; errors surface via last_error()
         --steps_remaining_;
         accum_sec_ -= interval_sec_;
