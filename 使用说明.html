@@ -130,7 +130,8 @@
   <a href="#ce-inject">&nbsp;&nbsp;5.1 使用 Cheat Engine 注入（详细步骤）</a>
   <a href="#usage">6. 界面使用说明</a>
   <a href="#files">7. 数据文件格式（favlist.fav / hotkey.txt / settings.json）</a>
-  <a href="#troubleshoot">8. 常见问题排查</a>
+  <a href="#desktop">8. 桌面测试版（不用注入也能验证功能）</a>
+  <a href="#troubleshoot">9. 常见问题排查</a>
 </div>
 
 <h2 id="overview">1. 这是什么</h2>
@@ -155,6 +156,12 @@
 </div>
 
 <h2 id="download">3. 获取产物</h2>
+<p>
+  项目现在会同时产出<strong>两个程序</strong>：<code>TeleportHackDX.dll</code>（注入版，用于真正在游戏里用）
+  和 <code>TeleportHackDesktop.exe</code>（独立桌面版，见
+  <a href="#desktop">第 8 节</a>，不需要注入，用来验证界面/收藏点/热键逻辑）。
+  它们共用同一套界面和业务逻辑源码。
+</p>
 <h3>方式 A：直接下载 CI 构建产物（推荐，无需装 Visual Studio）</h3>
 <ol>
   <li>打开仓库 Actions 页面：
@@ -163,7 +170,8 @@
   </li>
   <li>点击最新一次状态为绿色 ✅ 的 <code>build</code> workflow run</li>
   <li>页面下方 <strong>Artifacts</strong> 区域下载 <code>TeleportHackDX-win32.zip</code></li>
-  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>favlist.fav</code>、<code>hotkey.txt</code></li>
+  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>TeleportHackDesktop.exe</code>、
+    <code>favlist.fav</code>、<code>hotkey.txt</code></li>
 </ol>
 
 <h3>方式 B：本地用 Visual Studio 编译</h3>
@@ -172,7 +180,8 @@ cd TeleportHackDX
 mkdir build &amp;&amp; cd build
 cmake -A Win32 ..
 cmake --build . --config Release
-# 产物在 build\bin\Release\TeleportHackDX.dll</pre>
+# 产物在 build\bin\Release\TeleportHackDX.dll
+# 以及  build\bin\Release\TeleportHackDesktop.exe</pre>
 <p>需要 Visual Studio 2019+ 和 CMake 3.15+；<strong>必须编译为 32 位（Win32）</strong>，
    因为 WoW 这几个版本客户端都是 32 位程序。不需要额外安装老版 DirectX SDK。</p>
 
@@ -325,9 +334,41 @@ cmake --build . --config Release
 <p>两行一组：第一行是组合键（<code>^</code>=Ctrl，<code>!</code>=Alt，<code>+</code>=Shift），第二行是要跳转到的传送点描述（必须和 favlist.fav 里的描述完全一致）。</p>
 
 <h3>settings.json</h3>
-<p>首次运行会自动生成在 DLL 同目录下，记录分步移动参数、上次选择的分类、速度值等，缺失或损坏时会自动回退到默认值，不会导致崩溃。</p>
+<p>首次运行会自动生成在 DLL/EXE 同目录下，记录分步移动参数、上次选择的分类、速度值等，缺失或损坏时会自动回退到默认值，不会导致崩溃。</p>
 
-<h2 id="troubleshoot">8. 常见问题排查</h2>
+<h2 id="desktop">8. 桌面测试版（不用注入也能验证功能）</h2>
+<div class="card">
+  <code>TeleportHackDesktop.exe</code> 是一个普通的桌面窗口程序（不需要注入任何进程），
+  和注入版 <code>TeleportHackDX.dll</code> <strong>共用同一套界面 + 业务逻辑源码</strong>
+  （<code>src/ui/app.cpp</code> 等），唯一的区别是它自己开一个窗口/D3D9 设备来画界面，
+  并且通过 <code>OpenProcess</code> + <code>ReadProcessMemory</code>/<code>WriteProcessMemory</code>
+  "远程"读写一个已经在运行的 <code>WoW.exe</code>，而不是被注入进去直接读写自己所在的进程。
+  这样你改界面逻辑、收藏点逻辑、热键逻辑的时候，双击运行这个 exe 就能验证，不用每次都重新注入。
+</div>
+<h3>使用方法</h3>
+<ol>
+  <li><span class="step-num">1</span>正常启动 WoW 客户端（不需要注入任何东西）。</li>
+  <li><span class="step-num">2</span>双击运行 <code>TeleportHackDesktop.exe</code>
+    （建议和 <code>favlist.fav</code>、<code>hotkey.txt</code> 放在同一目录，原因同第 4 节）。
+    会弹出一个独立窗口，标题是 "TeleportHack Desktop (Attach mode)"，界面顶部比注入版多了一块
+    <strong>"WoW 进程"</strong> 区域。</li>
+  <li><span class="step-num">3</span>在 "WoW 进程" 列表里应该能看到正在运行的 <code>WoW.exe</code>
+    （按 PID 显示）；点一下选中，再点 <strong>Attach</strong> 按钮（或者直接双击那一行）完成附加。
+    附加成功后旁边状态会显示"attached (PID xxxx)"。</li>
+  <li><span class="step-num">4</span>选好客户端版本（client 下拉框），之后的操作和注入版完全一样：
+    分类/搜索/传送/CRUD/开关/速度/导入导出都是同一套代码，行为完全一致。</li>
+</ol>
+<div class="warn">
+  桌面版这个窗口本身不会跑在 WoW 进程里面，只是"隔着"读写它的内存，所以：
+  <ul style="margin-top:8px;">
+    <li>不需要任何注入器；</li>
+    <li>如果 WoW 客户端崩溃/重启，需要重新点一次 Attach（PID 变了）；</li>
+    <li>它更适合<strong>开发调试、验证收藏点/热键/UI 逻辑</strong>，正式"上分"建议还是用注入版
+      <code>TeleportHackDX.dll</code>，体验和原版 AutoIt 工具的使用方式最接近。</li>
+  </ul>
+</div>
+
+<h2 id="troubleshoot">9. 常见问题排查</h2>
 <ul>
   <li><strong>注入后没反应 / 按 Win+Insert 没有界面：</strong>
     确认 DLL 真的被加载了（在 System Informer 里查看该进程的 Loaded Modules 列表里能不能找到
@@ -345,6 +386,10 @@ cmake --build . --config Release
   </li>
   <li><strong>Speed 按钮点了没反应：</strong>
     Speed 只在 3.3.5 客户端上支持，1.12.1/1.12.3 客户端本身没有这个可写字段。
+  </li>
+  <li><strong>桌面版点 Attach 没反应 / 提示 "failed to attach"：</strong>
+    大概率是权限问题——把 <code>TeleportHackDesktop.exe</code> 右键"以管理员身份运行"，
+    <code>OpenProcess</code> 需要和目标进程相当的权限才能拿到读写句柄。
   </li>
   <li><strong>想确认最新一次 CI 构建是否成功：</strong>
     <a href="https://github.com/heshanu3d/TeleportHackDX/actions" target="_blank">
