@@ -13,10 +13,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-if(MSVC)
-    add_compile_options(/W4 /permissive-)
-endif()
-
 # ---------------------------------------------------------------- MinHook
 add_library(minhook STATIC
     vendor/minhook/src/buffer.c
@@ -69,6 +65,13 @@ target_link_libraries(TeleportHackDX PRIVATE
     d3d9
     comdlg32
 )
+
+# /W4 /permissive- scoped to just our own code -- vendored imgui/minhook
+# build at their normal warning level (they have a handful of harmless
+# upstream warnings that aren't worth fighting).
+if(MSVC)
+    target_compile_options(TeleportHackDX PRIVATE /W4 /permissive-)
+endif()
 
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK
 # (June 2010) required, unlike some older tutorials.
