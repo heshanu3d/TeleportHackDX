@@ -266,6 +266,61 @@ methodology" above for why two techniques are used):
 approximation) all succeeded, artifact
 `TeleportHackDX-0.1.0-g29695e9-win32` uploaded.
 
+## ✅ DONE — "读取到炉石": sync current position into a server-side Teleport.lua
+
+The user runs a separate Eluna/mod-lua script on their WoW 3.3.5 server,
+`~/code/work/0722_DirectXHookWithGui/Teleport.lua` (a "超级炉石" /
+super-hearthstone item gossip menu), whose coordinates live in a
+`local FAV = { {"name", mapId, x, y, z, o}, ... }` table. That table is
+normally *entirely regenerated* from `favlist.fav` by a sibling
+`gen_fav.py` (not part of this repo, lives next to `Teleport.lua`) --
+one-to-one by row, with mapId auto-inferred by name-keyword heuristics.
+
+Added a **surgical single-entry editor** instead of requiring a full
+regeneration for quick position tweaks:
+
+- `src/repository/teleport_lua_repository.{h,cpp}` (new): `update_entry(
+  description, pos, error)` finds the `local FAV = { ... }` table,
+  locates the row whose *decoded* Lua string name exactly equals
+  `description`, and rewrites just that row's x/y/z (always) and o (only
+  if `pos.orientation.has_value()` -- otherwise the row's existing o
+  token is copied through verbatim, same "missing preserves current
+  facing" convention as favlist.fav). The row's name and mapId tokens are
+  copied through byte-for-byte, never re-encoded. Every other line in the
+  file -- other rows, menu code, comments -- is untouched. The file's
+  UTF-8 BOM and CRLF line endings are detected and preserved on write.
+- `ui/app.cpp`: new "读取到炉石" button next to 编辑/删除 in the CRUD row.
+  Reads the current position exactly like Edit does
+  (`teleport_->read_position()`), then looks up the entry to patch via
+  `current_point()->description` (the *stored* description of the
+  currently selected row -- deliberately not `desc_buf_`, which is a
+  free-text edit box that may not match any Teleport.lua entry).
+- `Settings::teleport_lua_path` (new, empty by default -- most setups
+  don't have this file next to the DLL/EXE): editable via the Settings
+  popup alongside the existing favlist.fav/hotkey.txt path fields.
+- `tests/teleport_lua_repository_tests.cpp` (new CTest target): a
+  synthetic BOM+CRLF fixture covering normal update, a name containing an
+  escaped quote, missing-orientation preserving the existing o,
+  unknown-name / missing-file / missing-FAV-table error paths.
+
+**Verification**: real g++ compile+link+run of the synthetic-fixture
+tests (all passed), *plus* a manual (not committed as a test, since it
+needs the real file which isn't part of this repo) check against the
+actual 212588-byte / 3319-line `Teleport.lua`: a no-op update (writing
+back the exact existing x/y/z, no orientation change) produced a
+**byte-identical** file, and a real value change correctly patched only
+the target row while preserving exact line count. Then pushed and
+confirmed green on `windows-latest`: commit `1fee532`, CI run
+`30012301908` -- `Test (Release)` ran both `orientation_tests` and the
+new `teleport_lua_tests` for real and both passed, artifact
+`TeleportHackDX-0.1.0-g1fee532-win32` uploaded.
+
+If you need to re-verify the real-file round-trip again, don't add it as
+a committed test (the real file isn't part of this repo and its path is
+machine-specific) -- just adapt the throwaway harness described above:
+copy the real file to a temp path, call `update_entry()` with the exact
+existing values, and diff byte-for-byte against the original.
+
 ## Open user requests not yet addressed
 
 - Nothing outstanding as of this writing. The user had separately asked to
