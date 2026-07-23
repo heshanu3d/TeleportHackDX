@@ -9,6 +9,15 @@
 #include "imgui_impl_win32.h"
 #include "ui/app.h"
 
+// imgui_impl_win32.h deliberately comments out this declaration (to avoid
+// dragging <windows.h> into that header); we already include <Windows.h>
+// via core/hook.h, so declare it here ourselves at global scope (must NOT
+// live inside the anonymous namespace below, or it silently gets internal
+// linkage and fails to resolve to the real definition in
+// imgui_impl_win32.cpp).
+extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam,
+                                                              LPARAM lParam);
+
 namespace {
 
 typedef HRESULT(APIENTRY* EndSceneFn)(LPDIRECT3DDEVICE9);
