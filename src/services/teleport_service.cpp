@@ -89,9 +89,11 @@ bool TeleportService::write_position(const Position& pos) {
     if (version_.is_pointer_chain()) {
         uintptr_t base;
         if (!resolve_player_base(base)) return false;
-        // 3.3.5 also swaps axes on write.
-        bool ok = backend_.write_float(base + version_.pos_x, static_cast<float>(pos.y)) &&
-                  backend_.write_float(base + version_.pos_y, static_cast<float>(pos.x)) &&
+        // The original AutoIt path swapped x/y once in its UI layer and once
+        // again in WritePositionSingle(), so the effective 3.3.5 memory write
+        // was direct.  The service already receives logical coordinates.
+        bool ok = backend_.write_float(base + version_.pos_x, static_cast<float>(pos.x)) &&
+                  backend_.write_float(base + version_.pos_y, static_cast<float>(pos.y)) &&
                   backend_.write_float(base + version_.pos_z, static_cast<float>(pos.z));
         // Orientation is only written when the point actually requests one
         // (a missing value means "preserve current facing") and only on

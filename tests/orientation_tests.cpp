@@ -184,13 +184,17 @@ void test_335_orientation_memory() {
     th::TeleportService service(backend, *version);
     th::Position current;
     check(service.read_position(current), "3.3.5 position+orientation reads");
+    check(near_eq(current.x, 10) && near_eq(current.y, 20),
+          "3.3.5 read_position returns logical x/y order");
     check(current.orientation.has_value() && near_eq(*current.orientation, 1.857),
           "read_position reads pos_r on 3.3.5");
 
     check(service.write_position(th::Position{100, 200, 300, 4.559}),
           "position with orientation writes");
-    check(near_eq(backend.floats[base + version->pos_x], 200), "x/y axis swap retained on write");
-    check(near_eq(backend.floats[base + version->pos_y], 100), "y/x axis swap retained on write");
+    check(near_eq(backend.floats[base + version->pos_x], 100),
+          "3.3.5 writes logical x to pos_x");
+    check(near_eq(backend.floats[base + version->pos_y], 200),
+          "3.3.5 writes logical y to pos_y");
     check(near_eq(backend.floats[base + version->pos_r], 4.559), "pos_r is written when present");
 
     int orientation_writes_before = backend.write_count[base + version->pos_r];
