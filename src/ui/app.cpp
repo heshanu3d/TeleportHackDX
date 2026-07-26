@@ -524,6 +524,54 @@ void App::render_crud_rows() {
         }
     }
 
+    // 插后 表&炉石: insert the current position after the selected row in
+    // both the in-memory favourites table and Teleport.lua. The selected
+    // point's stored description is the Lua anchor; desc_buf_ names the new
+    // row, matching the ordinary 插后 button's semantics.
+    if (ImGui::Button(
+            "\xe6\x8f\x92\xe5\x90\x8e \xe8\xa1\xa8&\xe7\x82\x89\xe7\x9f\xb3")) {
+        if (selected_row_ < 0) {
+            log("[warn] no row selected for table + Teleport.lua append");
+        } else if (desc_buf_[0] == '\0') {
+            log("[warn] description is empty");
+        } else if (settings_.teleport_lua_path.empty()) {
+            log("[warn] Teleport.lua path not configured (see Settings)");
+        } else if (teleport_) {
+            auto anchor = current_point();
+            Position pos;
+            uint32_t map_id = 0;
+            uint32_t map_id_after = 0;
+            int anchor_index = -1;
+            if (!anchor) {
+                log("[error] selected row is no longer available");
+            } else if (!favourites_.resolve_global_index(selected_category_, selected_row_,
+                                                          anchor_index, error)) {
+                log("[error] cannot resolve selected row: " + error);
+            } else if (!teleport_->read_map_id(map_id)) {
+                log("[error] cannot read mapId: " + teleport_->last_error());
+            } else if (!teleport_->read_position(pos)) {
+                log("[error] cannot read position: " + teleport_->last_error());
+            } else if (!teleport_->read_map_id(map_id_after)) {
+                log("[error] cannot verify mapId: " + teleport_->last_error());
+            } else if (map_id != map_id_after) {
+                log("[warn] map changed while reading position; append cancelled, try again");
+            } else {
+                TeleportPoint point{desc_buf_, pos};
+                std::string lua_error;
+                TeleportLuaRepository lua_repo(resolve_path(settings_.teleport_lua_path));
+                if (!lua_repo.insert_entry_after(static_cast<size_t>(anchor_index),
+                                                 anchor->description, point, map_id, lua_error)) {
+                    log("[error] Teleport.lua insert failed: " + lua_error);
+                } else if (!favourites_.append_in_category(selected_category_, selected_row_, point,
+                                                            error)) {
+                    log("[error] table append failed after Teleport.lua insert: " + error);
+                } else {
+                    log("appended table + Teleport.lua: '" + point.description + "'");
+                }
+            }
+        }
+    }
+
     if (ImGui::Button("\xe8\xbf\xbd\xe5\x8a\xa0")) { // 追加 (add at end)
         Position pos;
         if (teleport_ && teleport_->read_position(pos) && desc_buf_[0] != '\0') {

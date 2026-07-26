@@ -71,8 +71,16 @@ bool FavouritesService::insert_in_category(const std::string& category, int inde
 }
 
 bool FavouritesService::append_in_category(const std::string& category, int index,
-                                            const TeleportPoint& point, std::string& error) {
-    return insert_in_category(category, index + 1, point, error);
+                                             const TeleportPoint& point, std::string& error) {
+    int gi;
+    if (!global_index(category, index, false, gi, error)) return false;
+    points_.insert(points_.begin() + gi + 1, point);
+    return true;
+}
+
+bool FavouritesService::resolve_global_index(const std::string& category, int local_index,
+                                               int& out, std::string& error) const {
+    return global_index(category, local_index, false, out, error);
 }
 
 bool FavouritesService::replace_in_category(const std::string& category, int index,

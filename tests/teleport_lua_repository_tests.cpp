@@ -1,4 +1,4 @@
-// TeleportLuaRepository tests: surgical single-entry edits inside a
+// TeleportLuaRepository tests: surgical single-entry edits/inserts inside a
 // server-side Teleport.lua's `local FAV = { {"name", mapId, x, y, z, o},
 // ... }` table, preserving everything else in the file byte-for-byte
 // (BOM, CRLF, menu code, other entries, mapId).
@@ -14,6 +14,7 @@
 
 #include "domain/models.h"
 #include "repository/teleport_lua_repository.h"
+#include "services/favourites_service.h"
 
 namespace {
 
@@ -102,6 +103,111 @@ void test_missing_orientation_preserves_existing_o(const std::filesystem::path& 
           "missing orientation leaves the existing o field (601's mapId also untouched)");
 }
 
+void test_insert_after(const std::filesystem::path& dir) {
+    auto path = dir / "insert.lua";
+    write_file(path, make_fixture());
+
+    th::TeleportLuaRepository repo(path.string());
+    const std::string new_name = "新增-\\path-\"quoted\"";
+    std::string error;
+    bool ok = repo.insert_entry_after(
+        0, kNameNormal, th::TeleportPoint{new_name, th::Position{100, 200, 300, 4.5}}, 571,
+        error);
+    check(ok, "insert_entry_after succeeds for a matching anchor");
+
+    std::string content = read_file(path);
+    check(content.rfind("\xEF\xBB\xBF", 0) == 0, "insert preserves BOM");
+    check(content.find("\r\n") != std::string::npos, "insert preserves CRLF line endings");
+    const std::string expected_sequence =
+        std::string("{\"") + kNameNormal + "\", 0, -9023.236, 465.42, 94.621, 0},\r\n" +
+        "    {\"新增-\\\\path-\\\"quoted\\\"\", 571, 100, 200, 300, 4.5},\r\n" +
+        "    {\"quote-\\\"test\\\"\", 0, 1, 2, 3, 0},";
+    check(content.find(expected_sequence) != std::string::npos,
+          "new row is immediately after the anchor with escaped name and current map/xyzo");
+    check(content.find("-- rest of the menu code, must survive untouched") != std::string::npos,
+          "insert leaves code outside the FAV table untouched");
+    check(!std::filesystem::exists(path.string() + ".tmp"),
+          "successful atomic save leaves no temporary file behind");
+
+    // The inserted escaped name must decode back to the original description
+    // so later 读取到炉石 updates can still find it.
+    ok = repo.update_entry(new_name, th::Position{101, 201, 301, 4.6}, error);
+    check(ok, "an inserted escaped name can be found and updated later");
+    content = read_file(path);
+    check(content.find("{\"新增-\\\\path-\\\"quoted\\\"\", 571, 101, 201, 301, 4.6},") !=
+              std::string::npos,
+          "later update preserves inserted name/mapId and changes xyzo");
+
+    ok = repo.insert_entry_after(1, new_name,
+                                 th::TeleportPoint{"no-r", th::Position{1, 2, 3, std::nullopt}},
+                                 1, error);
+    check(ok, "insert succeeds without an orientation");
+    content = read_file(path);
+    check(content.find("{\"no-r\", 1, 1, 2, 3, 0},") != std::string::npos,
+          "missing orientation is written as zero for a new Lua row");
+}
+
+void test_insert_bad_anchor_leaves_file_untouched(const std::filesystem::path& dir) {
+    auto path = dir / "insert_unknown.lua";
+    write_file(path, make_fixture());
+
+    th::TeleportLuaRepository repo(path.string());
+    std::string error;
+    bool ok = repo.insert_entry_after(
+        99, "does-not-exist", th::TeleportPoint{"new", th::Position{1, 2, 3, 0.0}}, 0, error);
+    check(!ok, "insert with an out-of-range anchor returns false");
+    check(!error.empty(), "out-of-range insert anchor sets a descriptive error");
+    check(read_file(path) == make_fixture(), "failed insert leaves the file byte-for-byte intact");
+}
+
+void test_duplicate_anchor_uses_index(const std::filesystem::path& dir) {
+    auto path = dir / "duplicate.lua";
+    const std::string fixture =
+        "local FAV = {\n"
+        "    {\"dup\", 0, 1, 2, 3, 0},\n"
+        "    {\"middle\", 0, 4, 5, 6, 0},\n"
+        "    {\"dup\", 1, 7, 8, 9, 0},\n"
+        "}\n";
+    write_file(path, fixture);
+
+    th::TeleportLuaRepository repo(path.string());
+    std::string error;
+    bool ok = repo.insert_entry_after(
+        2, "dup", th::TeleportPoint{"after-second", th::Position{10, 11, 12, 1.5}}, 571, error);
+    check(ok, "duplicate anchor can be selected by its global index");
+    std::string content = read_file(path);
+    check(content.find("{\"dup\", 1, 7, 8, 9, 0},\n"
+                       "    {\"after-second\", 571, 10, 11, 12, 1.5},") != std::string::npos,
+          "insert targets the selected duplicate rather than the first matching name");
+
+    const std::string before_mismatch = content;
+    ok = repo.insert_entry_after(
+        1, "dup", th::TeleportPoint{"wrong", th::Position{1, 2, 3, 0.0}}, 0, error);
+    check(!ok, "index/name mismatch is rejected as an out-of-sync Lua table");
+    check(read_file(path) == before_mismatch, "index/name mismatch leaves the file untouched");
+}
+
+void test_category_append_keeps_global_order(const std::filesystem::path& dir) {
+    th::FavouritesService favourites{th::FavlistRepository((dir / "order.fav").string())};
+    favourites.replace_all({
+        {"A-one", th::Position{1, 1, 1, std::nullopt}},
+        {"A-two", th::Position{2, 2, 2, std::nullopt}},
+        {"B-one", th::Position{3, 3, 3, std::nullopt}},
+    });
+
+    std::string error;
+    int global_index = -1;
+    check(favourites.resolve_global_index("A", 1, global_index, error) && global_index == 1,
+          "category-local selection resolves to its global favlist index");
+    check(favourites.append_in_category(
+              "A", 1, th::TeleportPoint{"B-new", th::Position{4, 4, 4, std::nullopt}}, error),
+          "append after the last item in a category succeeds");
+    const auto& points = favourites.all_points();
+    check(points.size() == 4 && points[2].description == "B-new" &&
+              points[3].description == "B-one",
+          "category append inserts directly after the selected global row, not at file end");
+}
+
 void test_unknown_name_fails_gracefully(const std::filesystem::path& dir) {
     auto path = dir / "unknown.lua";
     write_file(path, make_fixture());
@@ -134,6 +240,22 @@ void test_missing_fav_table(const std::filesystem::path& dir) {
     check(!error.empty(), "missing FAV table sets a descriptive error");
 }
 
+void test_atomic_save_failure_preserves_original(const std::filesystem::path& dir) {
+    auto path = dir / "atomic_failure.lua";
+    write_file(path, make_fixture());
+    std::filesystem::create_directory(path.string() + ".tmp");
+
+    th::TeleportLuaRepository repo(path.string());
+    std::string error;
+    bool ok = repo.update_entry(kNameNormal, th::Position{1, 2, 3, 4}, error);
+    check(!ok, "failure to create the temporary output returns false");
+    check(!error.empty(), "temporary output failure sets a descriptive error");
+    check(read_file(path) == make_fixture(), "temporary output failure preserves the live Lua file");
+
+    std::error_code ignored;
+    std::filesystem::remove(path.string() + ".tmp", ignored);
+}
+
 } // namespace
 
 int main() {
@@ -143,9 +265,14 @@ int main() {
 
     test_basic_update(dir);
     test_missing_orientation_preserves_existing_o(dir);
+    test_insert_after(dir);
+    test_insert_bad_anchor_leaves_file_untouched(dir);
+    test_duplicate_anchor_uses_index(dir);
+    test_category_append_keeps_global_order(dir);
     test_unknown_name_fails_gracefully(dir);
     test_missing_file(dir);
     test_missing_fav_table(dir);
+    test_atomic_save_failure_preserves_original(dir);
 
     std::error_code ignored;
     std::filesystem::remove_all(dir, ignored);

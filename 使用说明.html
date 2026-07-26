@@ -311,6 +311,9 @@ cmake --build . --config Release
     而是服务端 <code>Teleport.lua</code> 里 <code>local FAV</code> 表中<strong>当前选中行同名</strong>的那一条坐标数据
     （按描述文本精确匹配）。用于快速同步"超级炉石"NPC/道具菜单里的坐标，不需要重跑 <code>gen_fav.py</code> 整表重新生成。
     需要先在 Settings 里配置 Teleport.lua 的路径，否则会提示未配置。</td></tr>
+  <tr><td><strong>插后 表&amp;炉石</strong></td><td>执行一次普通"插后"，同时在 <code>Teleport.lua</code>
+    的选中同名条目之后插入相同的新条目。新名称取描述输入框，mapId/x/y/z/朝向取当前 3.3.5 角色；
+    仅 3.3.5 支持。和普通"插后"一样，列表改动仍需点击"保存"才会写入 favlist.fav。</td></tr>
   <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt</td></tr>
   <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
   <tr><td><strong>Speed 行</strong></td><td>设置移动速度（仅 3.3.5 支持，1.12.x 灰色不可用）</td></tr>
@@ -357,6 +360,8 @@ cmake --build . --config Release
   只会<strong>按描述文本精确匹配</strong>找到对应那一行，原地替换它的 x/y/z（朝向为空时保留原有朝向不变），
   其余所有行（菜单代码、其它坐标、mapId）逐字节保持不变，文件的 UTF-8 BOM 和 CRLF 换行也会保留。
   如果在表里找不到同名条目，会在日志里提示"未找到"，不会新增或写坏文件。
+  "插后 表&amp;炉石"则按选中条目名称定位锚点，在下一行插入新记录，并从当前 3.3.5 角色读取 mapId 和 xyzo；
+  锚点不存在或坐标/mapId 读取失败时不会修改列表或 Lua 文件。
 </p>
 
 <h2 id="desktop">8. 桌面测试版（不用注入也能验证功能）</h2>

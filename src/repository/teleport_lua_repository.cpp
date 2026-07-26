@@ -1,10 +1,15 @@
 #include "repository/teleport_lua_repository.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <vector>
+
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 namespace th {
 
@@ -113,37 +118,51 @@ std::string rebuild_row(const ParsedRow& row, const std::string& new_x, const st
     return oss.str();
 }
 
-} // namespace
+std::string quote_lua_string(const std::string& value) {
+    std::string out;
+    out.reserve(value.size() + 2);
+    out += '"';
+    for (char c : value) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
+    }
+    out += '"';
+    return out;
+}
 
-bool TeleportLuaRepository::update_entry(const std::string& description, const Position& pos,
-                                          std::string& error) const {
-    if (!std::filesystem::exists(path_)) {
-        error = path_ + " does not exist";
+struct LuaDocument {
+    bool had_bom = false;
+    bool use_crlf = false;
+    std::vector<std::string> lines;
+    size_t fav_begin = std::string::npos;
+    size_t fav_end = std::string::npos;
+};
+
+bool load_document(const std::string& path, LuaDocument& doc, std::string& error) {
+    if (!std::filesystem::exists(path)) {
+        error = path + " does not exist";
         return false;
     }
-    std::ifstream fh(path_, std::ios::binary);
+    std::ifstream fh(path, std::ios::binary);
     if (!fh) {
-        error = "cannot open " + path_ + " for reading";
+        error = "cannot open " + path + " for reading";
         return false;
     }
     std::ostringstream ss;
     ss << fh.rdbuf();
     std::string content = ss.str();
 
-    bool had_bom = content.rfind(kBom, 0) == 0;
-    if (had_bom) content.erase(0, 3);
+    doc.had_bom = content.rfind(kBom, 0) == 0;
+    if (doc.had_bom) content.erase(0, 3);
 
-    bool use_crlf = content.find("\r\n") != std::string::npos;
+    doc.use_crlf = content.find("\r\n") != std::string::npos;
     content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
 
-    std::vector<std::string> lines;
-    {
-        size_t start = 0;
-        for (size_t i = 0; i <= content.size(); ++i) {
-            if (i == content.size() || content[i] == '\n') {
-                lines.push_back(content.substr(start, i - start));
-                start = i + 1;
-            }
+    size_t start = 0;
+    for (size_t i = 0; i <= content.size(); ++i) {
+        if (i == content.size() || content[i] == '\n') {
+            doc.lines.push_back(content.substr(start, i - start));
+            start = i + 1;
         }
     }
 
@@ -151,58 +170,139 @@ bool TeleportLuaRepository::update_entry(const std::string& description, const P
     // build_fav_lines(): the opening line always starts with this exact
     // prefix, and the table is closed by a line that is just "}").
     const std::string kFavStart = "local FAV = {";
-    size_t fav_begin = std::string::npos, fav_end = std::string::npos;
-    for (size_t i = 0; i < lines.size(); ++i) {
-        if (lines[i].rfind(kFavStart, 0) == 0) {
-            fav_begin = i;
+    for (size_t i = 0; i < doc.lines.size(); ++i) {
+        if (doc.lines[i].rfind(kFavStart, 0) == 0) {
+            doc.fav_begin = i;
             break;
         }
     }
-    if (fav_begin == std::string::npos) {
-        error = "could not find 'local FAV = {' table in " + path_ +
+    if (doc.fav_begin == std::string::npos) {
+        error = "could not find 'local FAV = {' table in " + path +
                 " (has this file been through gen_fav.py?)";
         return false;
     }
-    for (size_t i = fav_begin + 1; i < lines.size(); ++i) {
-        if (trim(lines[i]) == "}") {
-            fav_end = i;
+    for (size_t i = doc.fav_begin + 1; i < doc.lines.size(); ++i) {
+        if (trim(doc.lines[i]) == "}") {
+            doc.fav_end = i;
             break;
         }
     }
-    if (fav_end == std::string::npos) {
-        error = "found 'local FAV = {' but no closing '}' in " + path_;
+    if (doc.fav_end == std::string::npos) {
+        error = "found 'local FAV = {' but no closing '}' in " + path;
+        return false;
+    }
+    return true;
+}
+
+bool save_document(const std::string& path, const LuaDocument& doc, std::string& error) {
+    const std::string sep = doc.use_crlf ? "\r\n" : "\n";
+    std::string out;
+    for (size_t i = 0; i < doc.lines.size(); ++i) {
+        if (i) out += sep;
+        out += doc.lines[i];
+    }
+    if (doc.had_bom) out = kBom + out;
+
+    const std::filesystem::path target(path);
+    std::filesystem::path temporary = target;
+    temporary += ".tmp";
+    std::ofstream out_fh(temporary, std::ios::binary | std::ios::trunc);
+    if (!out_fh) {
+        error = "cannot open " + temporary.string() + " for writing";
+        return false;
+    }
+    out_fh.write(out.data(), static_cast<std::streamsize>(out.size()));
+    out_fh.close();
+    if (!out_fh) {
+        error = "failed while writing " + temporary.string();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
         return false;
     }
 
-    for (size_t i = fav_begin + 1; i < fav_end; ++i) {
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), target.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        error = "cannot replace " + path + " (GetLastError=" +
+                std::to_string(GetLastError()) + ")";
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+#else
+    std::error_code replace_error;
+    std::filesystem::rename(temporary, target, replace_error);
+    if (replace_error) {
+        error = "cannot replace " + path + ": " + replace_error.message();
+        std::error_code ignored;
+        std::filesystem::remove(temporary, ignored);
+        return false;
+    }
+#endif
+    return true;
+}
+
+} // namespace
+
+bool TeleportLuaRepository::update_entry(const std::string& description, const Position& pos,
+                                           std::string& error) const {
+    LuaDocument doc;
+    if (!load_document(path_, doc, error)) return false;
+
+    for (size_t i = doc.fav_begin + 1; i < doc.fav_end; ++i) {
         ParsedRow row;
-        if (!parse_row(lines[i], row)) continue;
+        if (!parse_row(doc.lines[i], row)) continue;
         if (row.name != description) continue;
 
         std::string new_o = pos.orientation.has_value() ? format_float(*pos.orientation)
-                                                          : row.o_token;
-        lines[i] = rebuild_row(row, format_float(pos.x), format_float(pos.y),
-                                format_float(pos.z), new_o);
-
-        std::string sep = use_crlf ? "\r\n" : "\n";
-        std::string out;
-        for (size_t j = 0; j < lines.size(); ++j) {
-            if (j) out += sep;
-            out += lines[j];
-        }
-        if (had_bom) out = kBom + out;
-
-        std::ofstream out_fh(path_, std::ios::binary | std::ios::trunc);
-        if (!out_fh) {
-            error = "cannot open " + path_ + " for writing";
-            return false;
-        }
-        out_fh << out;
-        return true;
+                                                           : row.o_token;
+        doc.lines[i] = rebuild_row(row, format_float(pos.x), format_float(pos.y),
+                                    format_float(pos.z), new_o);
+        return save_document(path_, doc, error);
     }
 
     error = "no FAV entry named '" + description + "' found in " + path_ +
             " (run gen_fav.py to sync it from favlist.fav first?)";
+    return false;
+}
+
+bool TeleportLuaRepository::insert_entry_after(size_t after_index,
+                                                const std::string& after_description,
+                                                const TeleportPoint& point, uint32_t map_id,
+                                                std::string& error) const {
+    if (point.description.empty()) {
+        error = "new FAV entry description is empty";
+        return false;
+    }
+
+    LuaDocument doc;
+    if (!load_document(path_, doc, error)) return false;
+
+    size_t entry_index = 0;
+    for (size_t i = doc.fav_begin + 1; i < doc.fav_end; ++i) {
+        ParsedRow row;
+        if (!parse_row(doc.lines[i], row)) continue;
+        if (entry_index++ != after_index) continue;
+        if (row.name != after_description) {
+            error = "FAV entry at index " + std::to_string(after_index) + " is named '" +
+                    row.name + "', expected '" + after_description +
+                    "' (run gen_fav.py to resync Teleport.lua first?)";
+            return false;
+        }
+
+        const Position& pos = point.position;
+        const std::string orientation =
+            pos.orientation.has_value() ? format_float(*pos.orientation) : "0";
+        std::ostringstream new_row;
+        new_row << row.indent << "{" << quote_lua_string(point.description) << ", " << map_id
+                << ", " << format_float(pos.x) << ", " << format_float(pos.y) << ", "
+                << format_float(pos.z) << ", " << orientation << "},";
+        doc.lines.insert(doc.lines.begin() + static_cast<std::ptrdiff_t>(i + 1), new_row.str());
+        return save_document(path_, doc, error);
+    }
+
+    error = "FAV entry index " + std::to_string(after_index) + " is out of range in " + path_ +
+            " (run gen_fav.py to resync Teleport.lua first?)";
     return false;
 }
 

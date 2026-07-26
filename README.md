@@ -60,6 +60,11 @@ layout rationale this is based on):
   (including its UTF-8 BOM and CRLF line endings). Configure the path via
   Settings ("Teleport.lua path"); empty by default since most setups
   don't have this file. See `src/repository/teleport_lua_repository.h`.
+- "插后 表&炉石" button: performs the normal insert-after operation and
+  inserts the same new row immediately after the selected entry in
+  `Teleport.lua`. The new row uses the description input plus the current
+  3.3.5 character's mapId/x/y/z/orientation. Like ordinary insert-after, the
+  in-memory favlist change still requires Save to persist to `favlist.fav`.
 
 **Not ported** (out of scope, see project discussion): the AutoIt
 `bot/` scripts (hardcoded-account auto-login, dungeon farm bots) and
