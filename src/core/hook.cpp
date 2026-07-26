@@ -95,7 +95,28 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     }
 
     if (g_show_gui) {
-        ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam);
+        ImGuiIO& io = ImGui::GetIO();
+        const bool is_ime_text_message =
+            uMsg == WM_IME_COMPOSITION || uMsg == WM_IME_CHAR;
+
+        // WoW 3.3.5 owns an ANSI/MBCS window. The ImGui Win32 backend handles
+        // these IME messages by calling DefWindowProcW and converting the
+        // resulting DBCS character. Calling WoW's original WndProc afterwards
+        // would process the same composition a second time, producing extra
+        // garbage characters. Route each composition to exactly one owner.
+        if (!is_ime_text_message || io.WantTextInput) {
+            LRESULT imgui_result =
+                ImGui_ImplWin32_WndProcHandler(hwnd, uMsg, wParam, lParam);
+            if (is_ime_text_message) {
+                // A Unicode host expects its default WndProc to turn
+                // WM_IME_CHAR into WM_CHAR. WoW is ANSI, but preserving this
+                // path keeps the hook correct for either window class type.
+                if (uMsg == WM_IME_CHAR && IsWindowUnicode(hwnd)) {
+                    return DefWindowProcW(hwnd, uMsg, wParam, lParam);
+                }
+                return imgui_result;
+            }
+        }
         if (ShouldBlockMessage(uMsg)) return TRUE;
     }
 
