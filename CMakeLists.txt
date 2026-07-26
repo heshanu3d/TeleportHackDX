@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
-# Single source of truth for the version number -- also read directly by
-# .github/workflows/build.yml to name release artifacts.
+# CMake project version. CI artifact names come from Git tags; VERSION is
+# only the fallback base when the repository has no semantic-version tag yet.
 file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" TELEPORTHACKDX_VERSION)
 string(STRIP "${TELEPORTHACKDX_VERSION}" TELEPORTHACKDX_VERSION)
 

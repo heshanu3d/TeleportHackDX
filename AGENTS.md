@@ -46,10 +46,12 @@ https://github.com/AzDeltaQQ/WoW3.3.5aDirectXHookWithGui。
 - CI：`.github/workflows/build.yml`，运行在 `windows-latest`，通过 CMake 以
   `-A Win32` 构建 Release，上传一个**扁平的** `dist/` 文件夹
   （dll + exe + favlist.fav + hotkey.txt 都在 zip 根目录，没有
-  `build/bin/Release/` 这层嵌套），命名为
-  `TeleportHackDX-<VERSION>-g<shortsha>-win32`。仓库根目录的 `VERSION`
-  文件是唯一的版本号来源，CMake（`project(... VERSION ...)`）和 workflow
-  都从这里读取。
+  `build/bin/Release/` 这层嵌套）。普通 commit/PR 的 artifact 取最近语义化
+  tag 的 patch + 1 并加 `rc`：例如最近 tag 为 `0.1.1`，下载包名为
+  `TeleportHackDX-v0.1.2rc-win32.zip`；tag 构建使用 tag 本身，例如
+  `0.1.2` 对应 `TeleportHackDX-v0.1.2-win32.zip`。`VERSION` 继续作为 CMake
+  `project(... VERSION ...)` 的版本，并仅在仓库尚无语义化 tag 时作为 CI
+  artifact 版本计算的回退基数。
 - 截至 commit `610d4c1`（最后一次验证通过的推送），CI 是绿的，我们自己的代码在
   `/W4 /permissive-` 下**零警告**（在我把这些编译选项限定到只作用于我们自己的
   target 之前，vendored 的 MinHook 代码有一些无害的警告）。
