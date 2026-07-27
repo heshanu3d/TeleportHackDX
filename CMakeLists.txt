@@ -80,7 +80,7 @@ add_library(TeleportHackDX SHARED
     src/dllmain.cpp
     src/core/hook.cpp
 )
-target_link_libraries(TeleportHackDX PRIVATE th_core minhook d3d9)
+target_link_libraries(TeleportHackDX PRIVATE th_core minhook d3d9 imm32)
 if(MSVC)
     target_compile_options(TeleportHackDX PRIVATE /W4 /permissive-)
 endif()

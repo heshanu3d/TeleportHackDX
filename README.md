@@ -45,6 +45,8 @@ layout rationale this is based on):
   1.12.x)
 - Import / merge (dedup by description+x+y+z) / replace / export favourites
 - Settings persisted to `settings.json` next to the DLL/EXE
+- Chinese IME input in the injected ImGui text fields, with IME context and
+  message ownership isolated from WoW's own chat input
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
   since the DLL build always operates on its own host process
 

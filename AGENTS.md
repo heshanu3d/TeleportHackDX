@@ -132,7 +132,8 @@ CMake：`th_core` 这个 STATIC 库包含除了 `dllmain.cpp`/`core/hook.cpp`
 （SHARED）和 `TeleportHackDesktop`（可执行文件）都链接 `th_core`。`th_core`
 以 PUBLIC 方式链接 `imgui` + `comdlg32`（它们的符号只有在最终的 DLL/EXE
 链接进来之后才能真正解析）。`minhook`/`d3d9` 直接链接在两个最终 target 上，
-不经过 `th_core`。
+不经过 `th_core`；注入 DLL 还显式链接 `imm32`，用于在 WoW 的 ANSI 窗口里
+管理中文输入法 context。
 
 ## 已经落实的一些不明显的设计要点
 
@@ -143,6 +144,11 @@ CMake：`th_core` 这个 STATIC 库包含除了 `dllmain.cpp`/`core/hook.cpp`
 - **热键通过 `RegisterHotKey`/`WM_HOTKEY` 实现**，不是后台线程 ——
   即使悬浮界面被隐藏也能生效，两个构建都是通过被 hook/持有的 `WndProc`
   转发到 `App::on_wndproc()`。
+- **注入版的中文 IME 必须与 WoW 隔离。** WoW 3.3.5 的宿主窗口是 ANSI/MBCS，
+  且游戏可能在聊天框未激活时解除/关闭 HIMC。`hook.cpp` 包装了 ImGui 的
+  `Platform_SetImeDataFn`：文本框激活时通过注册窗口消息把请求异步派发到窗口线程，
+  临时关联默认 HIMC、开启并定位候选框；失焦/隐藏时取消组合并恢复。ImGui 拥有
+  文本输入期间完整拦截 `WM_IME_*`，其它时间则完全交还 WoW，避免重复字符和聊天乱码。
 - **窗口位置/大小持久化**（`settings.json` 里的
   `Settings::window_x/y/width/height`）：在 `BackendMode::InProcess`
   模式下，这几个字段控制悬浮的 ImGui 面板（每帧在 `Begin()` 之后捕获当前值，
