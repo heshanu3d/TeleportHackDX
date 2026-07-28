@@ -145,7 +145,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.IniFilename = nullptr;
+    io.IniFilename = nullptr; // App serializes this mode's layout into settings.json
     ImGui::StyleColorsDark();
 
     ImGui_ImplWin32_Init(hwnd);

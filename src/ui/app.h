@@ -68,8 +68,8 @@ public:
     // Desktop build only: called by main.cpp with the OS window's current
     // screen rect (e.g. from GetWindowRect) right before shutdown(), so
     // the saved settings.json remembers where the user left the window.
-    // No-op in InProcess mode (there the *ImGui panel's* bounds are what
-    // get persisted instead, captured automatically every frame in render()).
+    // The injected overlay's bounds and table columns are persisted in its
+    // own ImGui layout field inside the shared settings.json.
     void set_window_bounds(int x, int y, int width, int height);
 
     // Persist settings + unregister hotkeys; call before tearing down
@@ -77,6 +77,8 @@ public:
     void shutdown();
 
 private:
+    void capture_imgui_layout();
+
     HWND hwnd_ = nullptr;
     BackendMode mode_ = BackendMode::InProcess;
     Settings settings_;

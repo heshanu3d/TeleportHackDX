@@ -26,11 +26,15 @@ struct Settings {
     double speed_value = 7.0;
     bool fast_step = false;
 
-    // Persisted window bounds. In the injected DLL these govern the
-    // floating ImGui overlay panel's position/size over the game screen;
-    // in the standalone desktop build they govern the actual OS-level
-    // window. -1 for x/y means "not set yet, let the platform/ImGui pick
-    // a default position".
+    // Dear ImGui's native ini-format layout snapshots, stored as escaped
+    // JSON strings so both modes keep independent window/table layouts
+    // without creating extra files.
+    std::string dll_imgui_layout;
+    std::string desktop_imgui_layout;
+
+    // Standalone desktop build's native OS window bounds. The injected
+    // overlay's bounds are part of dll_imgui_layout above.
+    // -1 for x/y means "not set yet, let the platform pick a default".
     int window_x = -1;
     int window_y = -1;
     int window_width = 460;

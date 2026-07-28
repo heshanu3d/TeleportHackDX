@@ -311,7 +311,7 @@ HRESULT APIENTRY HookedEndScene(LPDIRECT3DDEVICE9 pDevice) {
 
         ImGui::CreateContext();
         ImGuiIO& io = ImGui::GetIO();
-        io.IniFilename = nullptr; // don't clutter the game folder with imgui.ini
+        io.IniFilename = nullptr; // App serializes this mode's layout into settings.json
         io.MouseDrawCursor = false;
         LoadUiFont();
 

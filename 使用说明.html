@@ -350,7 +350,13 @@ cmake --build . --config Release
 <p>两行一组：第一行是组合键（<code>^</code>=Ctrl，<code>!</code>=Alt，<code>+</code>=Shift），第二行是要跳转到的传送点描述（必须和 favlist.fav 里的描述完全一致）。</p>
 
 <h3>settings.json</h3>
-<p>首次运行会自动生成在 DLL/EXE 同目录下，记录分步移动参数、上次选择的分类、速度值等，缺失或损坏时会自动回退到默认值，不会导致崩溃。</p>
+<p>
+  首次运行会自动生成在 DLL/EXE 同目录下，记录两种运行模式共用的分步移动参数、上次选择的分类、
+  速度值等；桌面版原生窗口的位置和大小也记录在这里。注入 DLL 和桌面 EXE 的 ImGui 布局则分别
+  保存到 <code>dll_imgui_layout</code> 和 <code>desktop_imgui_layout</code> 字段，包括收藏坐标表格
+  各列宽度以及注入版悬浮窗口的位置、大小。调整 x/y/z/r 列宽后会自动保存，下次启动时恢复，
+  两种模式互不覆盖，也不会生成额外的 ImGui ini 文件。配置缺失或损坏时会自动回退到默认值。
+</p>
 
 <h3>Teleport.lua（服务端"超级炉石"脚本，可选）</h3>
 <p>

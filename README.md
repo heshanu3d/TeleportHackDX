@@ -44,7 +44,10 @@ layout rationale this is based on):
 - Speed hack (3.3.5 only -- the client field this writes doesn't exist on
   1.12.x)
 - Import / merge (dedup by description+x+y+z) / replace / export favourites
-- Settings persisted to `settings.json` next to the DLL/EXE
+- Shared application settings persisted to `settings.json` next to the
+  DLL/EXE. The same file holds separate DLL and desktop ImGui layout
+  snapshots, including favourites-table column widths, so the modes don't
+  overwrite each other's layout.
 - Chinese IME input in the injected ImGui text fields, with IME context and
   message ownership isolated from WoW's own chat input
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
@@ -93,6 +96,7 @@ vendor/
 tests/
   orientation_tests.cpp           favlist.fav format + 3.3.5 pos_r compatibility tests (CTest)
   teleport_lua_repository_tests.cpp  Teleport.lua single-entry edit tests, incl. against the real file (CTest)
+  settings_repository_tests.cpp   shared settings + separate DLL/desktop ImGui layout tests (CTest)
 favlist.fav, hotkey.txt   starter data copied from TeleportHackOnVanilla
 使用说明.html              full Chinese walkthrough (build/inject/desktop-mode/troubleshooting)
 ```

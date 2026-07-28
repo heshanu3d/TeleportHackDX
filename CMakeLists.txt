@@ -117,6 +117,15 @@ if(MSVC)
 endif()
 add_test(NAME teleport_lua_repository COMMAND teleport_lua_tests)
 
+add_executable(settings_repository_tests
+    tests/settings_repository_tests.cpp
+)
+target_link_libraries(settings_repository_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(settings_repository_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME settings_repository COMMAND settings_repository_tests)
+
 
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK
 # (June 2010) required, unlike some older tutorials.

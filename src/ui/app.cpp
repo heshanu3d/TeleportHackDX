@@ -60,6 +60,13 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
     settings_repo_ = SettingsRepository(resolve_path("settings.json"));
     settings_ = settings_repo_.load();
 
+    const std::string& imgui_layout = mode_ == BackendMode::InProcess
+                                          ? settings_.dll_imgui_layout
+                                          : settings_.desktop_imgui_layout;
+    if (ImGui::GetCurrentContext() && !imgui_layout.empty()) {
+        ImGui::LoadIniSettingsFromMemory(imgui_layout.data(), imgui_layout.size());
+    }
+
     std::snprintf(speed_buf_, sizeof(speed_buf_), "%.6g", settings_.speed_value);
     selected_category_ = settings_.last_category.empty() ? ALL_CATEGORY : settings_.last_category;
 
@@ -175,6 +182,15 @@ void App::safe_toggle(const std::string& name, const std::function<bool(bool&)>&
 }
 
 void App::tick() {
+    if (ImGui::GetCurrentContext() && ImGui::GetIO().WantSaveIniSettings) {
+        capture_imgui_layout();
+        ImGui::GetIO().WantSaveIniSettings = false;
+        std::string error;
+        if (!settings_repo_.save(settings_, error)) {
+            log("[error] settings save failed: " + error);
+        }
+    }
+
     if (teleport_ && step_session_.active()) {
         step_session_.tick(*teleport_);
     }
@@ -192,13 +208,26 @@ bool App::on_wndproc(UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
 }
 
 void App::set_window_bounds(int x, int y, int width, int height) {
+    if (mode_ != BackendMode::Attach) return;
     settings_.window_x = x;
     settings_.window_y = y;
     settings_.window_width = width;
     settings_.window_height = height;
 }
 
+void App::capture_imgui_layout() {
+    if (!ImGui::GetCurrentContext()) return;
+
+    size_t layout_size = 0;
+    const char* layout = ImGui::SaveIniSettingsToMemory(&layout_size);
+    std::string& target = mode_ == BackendMode::InProcess
+                              ? settings_.dll_imgui_layout
+                              : settings_.desktop_imgui_layout;
+    target.assign(layout, layout_size);
+}
+
 void App::shutdown() {
+    capture_imgui_layout();
     std::string error;
     if (!settings_repo_.save(settings_, error)) {
         log("[error] settings save failed: " + error);
@@ -214,27 +243,11 @@ void App::render() {
         mode_ == BackendMode::InProcess ? "TeleportHack DX" : "TeleportHack DX (Desktop / Attach)";
 
     if (mode_ == BackendMode::InProcess) {
-        // Floating, movable/resizable panel over the game. Restore last
-        // saved position/size (if any), then capture the live geometry
-        // every frame so it's ready to persist on shutdown() -- no
-        // separate "moved"/"resized" event needed.
-        if (settings_.window_x >= 0 && settings_.window_y >= 0) {
-            ImGui::SetNextWindowPos(ImVec2(static_cast<float>(settings_.window_x),
-                                            static_cast<float>(settings_.window_y)),
-                                     ImGuiCond_FirstUseEver);
-        }
-        ImGui::SetNextWindowSize(
-            ImVec2(static_cast<float>(settings_.window_width),
-                   static_cast<float>(settings_.window_height)),
-            ImGuiCond_FirstUseEver);
+        // The injected overlay's window and table layout use the DLL-only
+        // snapshot inside settings.json. Shared window bounds below belong
+        // only to the desktop build's native OS window.
+        ImGui::SetNextWindowSize(ImVec2(460.0f, 820.0f), ImGuiCond_FirstUseEver);
         ImGui::Begin(title);
-
-        ImVec2 pos = ImGui::GetWindowPos();
-        ImVec2 size = ImGui::GetWindowSize();
-        settings_.window_x = static_cast<int>(pos.x);
-        settings_.window_y = static_cast<int>(pos.y);
-        settings_.window_width = static_cast<int>(size.x);
-        settings_.window_height = static_cast<int>(size.y);
     } else {
         // Desktop build: the *OS* window (see src/desktop/main.cpp) is
         // what gets resized/moved by the user and persisted; pin the
