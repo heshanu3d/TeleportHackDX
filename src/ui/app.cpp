@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <utility>
 
 #include "imgui.h"
 #include "memory/outofprocess_backend.h"
@@ -182,12 +183,18 @@ void App::safe_toggle(const std::string& name, const std::function<bool(bool&)>&
 }
 
 void App::tick() {
-    if (ImGui::GetCurrentContext() && ImGui::GetIO().WantSaveIniSettings) {
-        capture_imgui_layout();
-        ImGui::GetIO().WantSaveIniSettings = false;
-        std::string error;
-        if (!settings_repo_.save(settings_, error)) {
-            log("[error] settings save failed: " + error);
+    if (ImGui::GetCurrentContext()) {
+        ImGuiIO& io = ImGui::GetIO();
+        const double now = ImGui::GetTime();
+        if (io.WantSaveIniSettings || now >= next_layout_snapshot_time_) {
+            next_layout_snapshot_time_ = now + 1.0;
+            if (capture_imgui_layout()) {
+                std::string error;
+                if (!settings_repo_.save(settings_, error)) {
+                    log("[error] settings save failed: " + error);
+                }
+            }
+            io.WantSaveIniSettings = false;
         }
     }
 
@@ -215,15 +222,18 @@ void App::set_window_bounds(int x, int y, int width, int height) {
     settings_.window_height = height;
 }
 
-void App::capture_imgui_layout() {
-    if (!ImGui::GetCurrentContext()) return;
+bool App::capture_imgui_layout() {
+    if (!ImGui::GetCurrentContext()) return false;
 
     size_t layout_size = 0;
     const char* layout = ImGui::SaveIniSettingsToMemory(&layout_size);
     std::string& target = mode_ == BackendMode::InProcess
-                              ? settings_.dll_imgui_layout
-                              : settings_.desktop_imgui_layout;
-    target.assign(layout, layout_size);
+                               ? settings_.dll_imgui_layout
+                               : settings_.desktop_imgui_layout;
+    std::string snapshot(layout, layout_size);
+    if (target == snapshot) return false;
+    target = std::move(snapshot);
+    return true;
 }
 
 void App::shutdown() {

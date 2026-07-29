@@ -77,7 +77,7 @@ public:
     void shutdown();
 
 private:
-    void capture_imgui_layout();
+    bool capture_imgui_layout();
 
     HWND hwnd_ = nullptr;
     BackendMode mode_ = BackendMode::InProcess;
@@ -106,6 +106,7 @@ private:
     char import_path_buf_[512] = {0};
     char export_path_buf_[512] = {0};
     bool show_settings_ = false;
+    double next_layout_snapshot_time_ = 0.0;
 
     // Attach-mode only: process picker state.
     std::vector<ProcessEntry> process_list_;

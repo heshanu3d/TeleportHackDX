@@ -355,7 +355,8 @@ cmake --build . --config Release
   速度值等；桌面版原生窗口的位置和大小也记录在这里。注入 DLL 和桌面 EXE 的 ImGui 布局则分别
   保存到 <code>dll_imgui_layout</code> 和 <code>desktop_imgui_layout</code> 字段，包括收藏坐标表格
   各列宽度以及注入版悬浮窗口的位置、大小。调整 x/y/z/r 列宽后会自动保存，下次启动时恢复，
-  两种模式互不覆盖，也不会生成额外的 ImGui ini 文件。配置缺失或损坏时会自动回退到默认值。
+  两种模式互不覆盖，也不会生成额外的 ImGui ini 文件。DLL 在渲染期间每秒检查一次布局，内容发生
+  变化就立即写回，不依赖 WoW 退出时的 DLL 卸载回调。配置缺失或损坏时会自动回退到默认值。
 </p>
 
 <h3>Teleport.lua（服务端"超级炉石"脚本，可选）</h3>
