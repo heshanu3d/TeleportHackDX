@@ -317,7 +317,8 @@ cmake --build . --config Release
 </ol>
 <div class="warn">
   启动器、DLL 和目标 WoW 客户端必须都是 32 位。启动器只会注入自己同目录下固定名称的
-  <code>TeleportHackDX.dll</code>，不会从配置读取其它 DLL 路径。
+  <code>TeleportHackDX.dll</code>，不会从配置读取其它 DLL 路径。WoW 启动初期如果模块列表暂时返回
+  <code>ERROR_PARTIAL_COPY (299)</code>，启动器会自动重试最多 10 秒；持续失败通常表示客户端位数不匹配。
 </div>
 
 

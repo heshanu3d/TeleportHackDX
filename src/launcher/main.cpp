@@ -58,12 +58,19 @@ std::string win32_error(const char* operation) {
 
 bool remote_module_base(DWORD process_id, const std::wstring& module_name, uintptr_t& base,
                         std::string& error) {
-    for (int attempt = 0; attempt < 100; ++attempt) {
+    for (int attempt = 0; attempt < 200; ++attempt) {
         HANDLE snapshot =
             CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, process_id);
         if (snapshot == INVALID_HANDLE_VALUE) {
-            if (GetLastError() == ERROR_BAD_LENGTH) {
-                Sleep(10);
+            const DWORD snapshot_error = GetLastError();
+            if (snapshot_error == ERROR_BAD_LENGTH || snapshot_error == ERROR_PARTIAL_COPY) {
+                if (attempt == 199) {
+                    error = "module snapshot remained unavailable (GetLastError=" +
+                            std::to_string(snapshot_error) +
+                            "); verify that WoW.exe is a Win32/x86 client";
+                    return false;
+                }
+                Sleep(50);
                 continue;
             }
             error = win32_error("CreateToolhelp32Snapshot");
