@@ -52,6 +52,10 @@ layout rationale this is based on):
   message ownership isolated from WoW's own chat input
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
   since the DLL build always operates on its own host process
+- `TeleportHackLauncher.exe`: reads `wow_exe_path` from the shared
+  `settings.json`, starts that Win32 `WoW.exe`, injects the sibling
+  `TeleportHackDX.dll` once process initialization permits remote threads,
+  and reports configuration or injection errors in a console window
 
 **Extra, not present in TeleportHackOnVanilla**:
 
@@ -84,6 +88,7 @@ src/
   dllmain.cpp            DLL entry point (TeleportHackDX.dll only)
   core/hook.cpp           D3D9 EndScene/Reset hook, WndProc hook (TeleportHackDX.dll only)
   desktop/main.cpp        Standalone Win32 + D3D9 window/message loop (TeleportHackDesktop.exe only)
+  launcher/main.cpp       Starts configured WoW.exe and injects TeleportHackDX.dll
   domain/                 Position/TeleportPoint/Category/HotkeyBinding + per-version memory layout
   memory/                 MemoryBackend interface + InProcessBackend (SEH-guarded) + OutOfProcessBackend (RPM/WPM)
   services/               TeleportService, FeatureService, FavouritesService, HotkeyService, ...
@@ -101,9 +106,10 @@ favlist.fav, hotkey.txt   starter data copied from TeleportHackOnVanilla
 使用说明.html              full Chinese walkthrough (build/inject/desktop-mode/troubleshooting)
 ```
 
-`CMakeLists.txt` factors the shared sources into a `th_core` static
-library that both `TeleportHackDX` (SHARED) and `TeleportHackDesktop`
-(executable) link against.
+`CMakeLists.txt` factors the shared UI/business sources into a `th_core`
+static library that `TeleportHackDX` (SHARED) and `TeleportHackDesktop`
+(executable) link against. The small launcher only compiles the settings and
+path helpers it needs.
 
 ## Building
 
@@ -118,23 +124,27 @@ cmake --build . --config Release
 ctest -C Release --output-on-failure
 ```
 
-Output: `build/bin/Release/TeleportHackDX.dll` and
-`build/bin/Release/TeleportHackDesktop.exe`.
+Output: `build/bin/Release/TeleportHackDX.dll`,
+`build/bin/Release/TeleportHackDesktop.exe`, and
+`build/bin/Release/TeleportHackLauncher.exe`.
 
 No legacy DirectX SDK (June 2010) is required -- only `d3d9.h`/`d3d9.lib`
 from the standard Windows SDK, which ships with Visual Studio. CI
-(`.github/workflows/build.yml`) builds both on `windows-latest` on every
+(`.github/workflows/build.yml`) builds all three on `windows-latest` on every
 push.
 
 ## Usage
 
-1. Copy `TeleportHackDX.dll` (or `TeleportHackDesktop.exe`), `favlist.fav`,
-   `hotkey.txt` into the same folder (they can be anywhere; the
+1. Copy `TeleportHackDX.dll`, `TeleportHackDesktop.exe`,
+   `TeleportHackLauncher.exe`, `favlist.fav`, and `hotkey.txt` into the same
+   folder (they can be anywhere; the
    DLL/EXE locates its own directory at runtime and reads/writes
    `favlist.fav` / `hotkey.txt` / `settings.json` next to itself, not next
    to `WoW.exe`).
-2. Start the WoW client (1.12.1, 1.12.3, or 3.3.5 — 32-bit).
-3. **Injected mode**: inject `TeleportHackDX.dll` with your preferred
+2. For one-click launch, set `wow_exe_path` in `settings.json` (or through
+   the Settings window), then double-click `TeleportHackLauncher.exe`.
+   It starts WoW and injects the sibling DLL automatically.
+3. **Manual injected mode**: start WoW, then inject `TeleportHackDX.dll` with your preferred
    injector (Cheat Engine, Extreme Injector, Xenos, ...) -- see
    `使用说明.html` for a step-by-step Cheat Engine walkthrough. **Win +
    Insert** toggles the overlay.

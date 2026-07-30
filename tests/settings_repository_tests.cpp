@@ -39,9 +39,10 @@ int main() {
         "Size=500,900\n"
         "Label=quoted \"text\" and C:\\layout\n";
 
-    th::SettingsRepository repo(path.string());
+    th::SettingsRepository repo(path);
     th::Settings settings;
     settings.default_version = "3.3.5";
+    settings.wow_exe_path = "C:\\Games\\WoW 3.3.5\\WoW.exe";
     settings.dll_imgui_layout = dll_layout;
     settings.desktop_imgui_layout = desktop_layout;
 
@@ -53,6 +54,8 @@ int main() {
           "DLL ImGui layout survives JSON escaping and reload");
     check(loaded.desktop_imgui_layout == desktop_layout,
           "desktop ImGui layout survives quotes, backslashes, and reload");
+    check(loaded.wow_exe_path == settings.wow_exe_path,
+          "launcher WoW.exe path survives JSON escaping and reload");
     check(loaded.dll_imgui_layout != loaded.desktop_imgui_layout,
           "DLL and desktop layouts remain independent");
 

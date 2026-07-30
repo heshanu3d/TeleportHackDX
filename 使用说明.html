@@ -128,6 +128,7 @@
   <a href="#layout">4. 整理文件目录</a>
   <a href="#inject">5. 注入到 WoW.exe</a>
   <a href="#ce-inject">&nbsp;&nbsp;5.1 使用 Cheat Engine 注入（详细步骤）</a>
+  <a href="#launcher">&nbsp;&nbsp;5.2 使用自动启动器</a>
   <a href="#usage">6. 界面使用说明</a>
   <a href="#files">7. 数据文件格式（favlist.fav / hotkey.txt / settings.json）</a>
   <a href="#desktop">8. 桌面测试版（不用注入也能验证功能）</a>
@@ -157,8 +158,9 @@
 
 <h2 id="download">3. 获取产物</h2>
 <p>
-  项目现在会同时产出<strong>两个程序</strong>：<code>TeleportHackDX.dll</code>（注入版，用于真正在游戏里用）
-  和 <code>TeleportHackDesktop.exe</code>（独立桌面版，见
+  项目现在会同时产出三个程序：<code>TeleportHackDX.dll</code>（注入版，用于真正在游戏里用）、
+  <code>TeleportHackLauncher.exe</code>（自动启动 WoW 并注入 DLL）和
+  <code>TeleportHackDesktop.exe</code>（独立桌面版，见
   <a href="#desktop">第 8 节</a>，不需要注入，用来验证界面/收藏点/热键逻辑）。
   它们共用同一套界面和业务逻辑源码。
 </p>
@@ -170,7 +172,7 @@
   </li>
   <li>点击最新一次状态为绿色 ✅ 的 <code>build</code> workflow run</li>
   <li>页面下方 <strong>Artifacts</strong> 区域下载 <code>TeleportHackDX-win32.zip</code></li>
-  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>TeleportHackDesktop.exe</code>、
+  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>TeleportHackDesktop.exe</code>、<code>TeleportHackLauncher.exe</code>、
     <code>favlist.fav</code>、<code>hotkey.txt</code></li>
 </ol>
 
@@ -181,7 +183,8 @@ mkdir build &amp;&amp; cd build
 cmake -A Win32 ..
 cmake --build . --config Release
 # 产物在 build\bin\Release\TeleportHackDX.dll
-# 以及  build\bin\Release\TeleportHackDesktop.exe</pre>
+# 以及  build\bin\Release\TeleportHackDesktop.exe
+#       build\bin\Release\TeleportHackLauncher.exe</pre>
 <p>需要 Visual Studio 2019+ 和 CMake 3.15+；<strong>必须编译为 32 位（Win32）</strong>，
    因为 WoW 这几个版本客户端都是 32 位程序。不需要额外安装老版 DirectX SDK。</p>
 
@@ -192,6 +195,8 @@ cmake --build . --config Release
 </p>
 <pre>C:\WowHack\
 ├── TeleportHackDX.dll
+├── TeleportHackLauncher.exe
+├── TeleportHackDesktop.exe
 ├── favlist.fav
 └── hotkey.txt</pre>
 <div class="warn">
@@ -296,6 +301,26 @@ cmake --build . --config Release
 </div>
 
 
+<h3 id="launcher">5.2 使用自动启动器</h3>
+<ol>
+  <li><span class="step-num">1</span>确保 <code>TeleportHackLauncher.exe</code> 和
+    <code>TeleportHackDX.dll</code> 位于同一目录。</li>
+  <li><span class="step-num">2</span>在桌面版的 Settings 窗口填写 <strong>WoW.exe path</strong> 并保存，
+    或直接编辑同目录的 <code>settings.json</code>：
+    <pre>"wow_exe_path": "D:\\Games\\World of Warcraft 3.3.5a\\WoW.exe"</pre>
+    JSON 中的反斜杠需要写成两个。也可以填写相对于启动器目录的相对路径。</li>
+  <li><span class="step-num">3</span>双击 <code>TeleportHackLauncher.exe</code>。启动器会校验路径必须存在且
+    文件名为 <code>WoW.exe</code>，随后启动游戏并注入同目录的 DLL。Windows 会在进程初始化允许远程线程
+    执行后自动完成加载，启动器最多等待 60 秒。</li>
+  <li><span class="step-num">4</span>成功后启动器自动退出；配置缺失、路径非法、DLL 缺失或注入失败时，
+    控制台会保留错误提示，按 Enter 后关闭。</li>
+</ol>
+<div class="warn">
+  启动器、DLL 和目标 WoW 客户端必须都是 32 位。启动器只会注入自己同目录下固定名称的
+  <code>TeleportHackDX.dll</code>，不会从配置读取其它 DLL 路径。
+</div>
+
+
 <h2 id="usage">6. 界面使用说明</h2>
 <p>界面布局完全对应原 AutoIt/Python 版本的窗口结构：</p>
 <table>
@@ -318,7 +343,7 @@ cmake --build . --config Release
   <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
   <tr><td><strong>Speed 行</strong></td><td>设置移动速度（仅 3.3.5 支持，1.12.x 灰色不可用）</td></tr>
   <tr><td><strong>Import / Export</strong></td><td>导入替换全部 / 合并去重导入 / 导出到指定 <code>.fav</code> 文件（弹出系统文件选择框）</td></tr>
-  <tr><td><strong>Settings</strong></td><td>调整分步移动的步距/间隔、favlist.fav 和 hotkey.txt 的路径</td></tr>
+  <tr><td><strong>Settings</strong></td><td>调整分步移动参数，以及 favlist.fav、hotkey.txt、WoW.exe 和 Teleport.lua 的路径</td></tr>
   <tr><td><strong>日志区</strong></td><td>所有操作结果、错误信息都会打印在这里</td></tr>
 </table>
 <p>

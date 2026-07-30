@@ -733,6 +733,12 @@ void App::render_settings_popup() {
     if (ImGui::InputText("hotkey.txt path", hk_path, sizeof(hk_path))) {
         settings_.hotkey_path = hk_path;
     }
+    char wow_path[512];
+    std::snprintf(wow_path, sizeof(wow_path), "%s", settings_.wow_exe_path.c_str());
+    if (ImGui::InputText("WoW.exe path", wow_path, sizeof(wow_path))) {
+        settings_.wow_exe_path = wow_path;
+    }
+    ImGui::TextDisabled("used by TeleportHackLauncher.exe");
     char lua_path[512];
     std::snprintf(lua_path, sizeof(lua_path), "%s", settings_.teleport_lua_path.c_str());
     if (ImGui::InputText("Teleport.lua path", lua_path, sizeof(lua_path))) {

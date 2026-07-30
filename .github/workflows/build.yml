@@ -61,10 +61,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item build/bin/Release/TeleportHackDX.dll dist/
           Copy-Item build/bin/Release/TeleportHackDesktop.exe dist/
+          Copy-Item build/bin/Release/TeleportHackLauncher.exe dist/
           Copy-Item favlist.fav dist/
           Copy-Item hotkey.txt dist/
 
-      - name: Upload DLL + desktop exe + starter data
+      - name: Upload DLL + desktop exe + launcher + starter data
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.vars.outputs.artifact_name }}

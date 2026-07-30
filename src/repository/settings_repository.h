@@ -5,6 +5,7 @@
 // TeleportHackOnVanilla/win/src/teleport_hack/application/settings.py
 #pragma once
 
+#include <filesystem>
 #include <string>
 
 #include "domain/models.h"
@@ -17,6 +18,9 @@ struct Settings {
     std::string default_version = "3.3.5";
     std::string favlist_path = "favlist.fav";
     std::string hotkey_path = "hotkey.txt";
+    // WoW.exe launched by TeleportHackLauncher.exe. Empty until explicitly
+    // configured; relative paths resolve from the launcher directory.
+    std::string wow_exe_path;
     // Server-side Teleport.lua script (see repository/teleport_lua_repository.h)
     // used by the "读取到炉石" and "插后 表&炉石" buttons to update/insert the
     // current position in its `local FAV` table. Empty by default -- most
@@ -43,9 +47,9 @@ struct Settings {
 
 class SettingsRepository {
 public:
-    explicit SettingsRepository(std::string path) : path_(std::move(path)) {}
+    explicit SettingsRepository(std::filesystem::path path) : path_(std::move(path)) {}
 
-    const std::string& path() const { return path_; }
+    const std::filesystem::path& path() const { return path_; }
 
     // Forgiving: missing file, corrupt JSON, or unknown keys all yield a
     // valid Settings{} instead of an error.
@@ -54,7 +58,7 @@ public:
     bool save(const Settings& settings, std::string& error) const;
 
 private:
-    std::string path_;
+    std::filesystem::path path_;
 };
 
 } // namespace th

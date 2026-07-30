@@ -143,6 +143,7 @@ Settings SettingsRepository::load() const {
     get_str("default_version", s.default_version);
     get_str("favlist_path", s.favlist_path);
     get_str("hotkey_path", s.hotkey_path);
+    get_str("wow_exe_path", s.wow_exe_path);
     get_str("teleport_lua_path", s.teleport_lua_path);
     get_str("last_category", s.last_category);
     get_double("speed_value", s.speed_value);
@@ -163,7 +164,7 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
 
     std::ofstream fh(path_, std::ios::binary | std::ios::trunc);
     if (!fh) {
-        error = "cannot open " + path_ + " for writing";
+        error = "cannot open " + path_.u8string() + " for writing";
         return false;
     }
     fh << "{\n";
@@ -172,6 +173,7 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"default_version\": \"" << json_escape(settings.default_version) << "\",\n";
     fh << "  \"favlist_path\": \"" << json_escape(settings.favlist_path) << "\",\n";
     fh << "  \"hotkey_path\": \"" << json_escape(settings.hotkey_path) << "\",\n";
+    fh << "  \"wow_exe_path\": \"" << json_escape(settings.wow_exe_path) << "\",\n";
     fh << "  \"teleport_lua_path\": \"" << json_escape(settings.teleport_lua_path) << "\",\n";
     fh << "  \"last_category\": \"" << json_escape(settings.last_category) << "\",\n";
     fh << "  \"speed_value\": " << settings.speed_value << ",\n";
@@ -184,6 +186,16 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"window_width\": " << settings.window_width << ",\n";
     fh << "  \"window_height\": " << settings.window_height << "\n";
     fh << "}\n";
+    fh.flush();
+    if (!fh) {
+        error = "failed while writing " + path_.u8string();
+        return false;
+    }
+    fh.close();
+    if (!fh) {
+        error = "failed while closing " + path_.u8string();
+        return false;
+    }
     return true;
 }
 

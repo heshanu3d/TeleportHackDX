@@ -97,6 +97,20 @@ if(MSVC)
     target_compile_options(TeleportHackDesktop PRIVATE /W4 /permissive-)
 endif()
 
+# --------------------------------------------------------------- launcher
+# Console launcher: starts configured WoW.exe suspended, resumes process
+# initialization, then injects the sibling TeleportHackDX.dll. Kept independent
+# of th_core so it doesn't pull ImGui/D3D into the small launcher executable.
+add_executable(TeleportHackLauncher
+    src/launcher/main.cpp
+    src/domain/models.cpp
+    src/repository/settings_repository.cpp
+)
+target_include_directories(TeleportHackLauncher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(TeleportHackLauncher PRIVATE /W4 /permissive-)
+endif()
+
 # --------------------------------------------------------------- tests
 enable_testing()
 add_executable(orientation_tests
