@@ -83,6 +83,20 @@ bool FavouritesService::resolve_global_index(const std::string& category, int lo
     return global_index(category, local_index, false, out, error);
 }
 
+bool FavouritesService::resolve_description_occurrence(const std::string& category,
+                                                         int local_index, size_t& out,
+                                                         std::string& error) const {
+    int selected_index = -1;
+    if (!global_index(category, local_index, false, selected_index, error)) return false;
+
+    out = 0;
+    const std::string& description = points_[static_cast<size_t>(selected_index)].description;
+    for (int i = 0; i < selected_index; ++i) {
+        if (points_[static_cast<size_t>(i)].description == description) ++out;
+    }
+    return true;
+}
+
 bool FavouritesService::replace_in_category(const std::string& category, int index,
                                              const TeleportPoint& point, std::string& error) {
     int gi;

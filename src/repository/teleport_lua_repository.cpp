@@ -244,15 +244,18 @@ bool save_document(const std::string& path, const LuaDocument& doc, std::string&
 
 } // namespace
 
-bool TeleportLuaRepository::update_entry(const std::string& description, const Position& pos,
+bool TeleportLuaRepository::update_entry(const std::string& description,
+                                           size_t description_occurrence, const Position& pos,
                                            std::string& error) const {
     LuaDocument doc;
     if (!load_document(path_, doc, error)) return false;
 
+    size_t occurrence = 0;
     for (size_t i = doc.fav_begin + 1; i < doc.fav_end; ++i) {
         ParsedRow row;
         if (!parse_row(doc.lines[i], row)) continue;
         if (row.name != description) continue;
+        if (occurrence++ != description_occurrence) continue;
 
         std::string new_o = pos.orientation.has_value() ? format_float(*pos.orientation)
                                                            : row.o_token;
@@ -261,15 +264,15 @@ bool TeleportLuaRepository::update_entry(const std::string& description, const P
         return save_document(path_, doc, error);
     }
 
-    error = "no FAV entry named '" + description + "' found in " + path_ +
-            " (run gen_fav.py to sync it from favlist.fav first?)";
+    error = "FAV entry '" + description + "' occurrence " +
+            std::to_string(description_occurrence + 1) + " was not found in " + path_;
     return false;
 }
 
-bool TeleportLuaRepository::insert_entry_after(size_t after_index,
-                                                const std::string& after_description,
-                                                const TeleportPoint& point, uint32_t map_id,
-                                                std::string& error) const {
+bool TeleportLuaRepository::insert_entry_after(const std::string& after_description,
+                                                 size_t description_occurrence,
+                                                 const TeleportPoint& point, uint32_t map_id,
+                                                 std::string& error) const {
     if (point.description.empty()) {
         error = "new FAV entry description is empty";
         return false;
@@ -278,17 +281,12 @@ bool TeleportLuaRepository::insert_entry_after(size_t after_index,
     LuaDocument doc;
     if (!load_document(path_, doc, error)) return false;
 
-    size_t entry_index = 0;
+    size_t occurrence = 0;
     for (size_t i = doc.fav_begin + 1; i < doc.fav_end; ++i) {
         ParsedRow row;
         if (!parse_row(doc.lines[i], row)) continue;
-        if (entry_index++ != after_index) continue;
-        if (row.name != after_description) {
-            error = "FAV entry at index " + std::to_string(after_index) + " is named '" +
-                    row.name + "', expected '" + after_description +
-                    "' (run gen_fav.py to resync Teleport.lua first?)";
-            return false;
-        }
+        if (row.name != after_description) continue;
+        if (occurrence++ != description_occurrence) continue;
 
         const Position& pos = point.position;
         const std::string orientation =
@@ -301,8 +299,8 @@ bool TeleportLuaRepository::insert_entry_after(size_t after_index,
         return save_document(path_, doc, error);
     }
 
-    error = "FAV entry index " + std::to_string(after_index) + " is out of range in " + path_ +
-            " (run gen_fav.py to resync Teleport.lua first?)";
+    error = "FAV anchor '" + after_description + "' occurrence " +
+            std::to_string(description_occurrence + 1) + " was not found in " + path_;
     return false;
 }
 

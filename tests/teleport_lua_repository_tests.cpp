@@ -72,7 +72,7 @@ void test_basic_update(const std::filesystem::path& dir) {
     th::TeleportLuaRepository repo(path.string());
     std::string error;
     // orientation present -> should overwrite o too
-    bool ok = repo.update_entry(kNameNormal, th::Position{100, 200, 300, 4.5}, error);
+    bool ok = repo.update_entry(kNameNormal, 0, th::Position{100, 200, 300, 4.5}, error);
     check(ok, "update_entry succeeds for a matching name");
 
     std::string content = read_file(path);
@@ -95,7 +95,8 @@ void test_missing_orientation_preserves_existing_o(const std::filesystem::path& 
     std::string error;
     // orientation NOT present -> existing o (1.857) must survive untouched
     bool ok =
-        repo.update_entry(kNameWithOrientation, th::Position{10, 20, 30, std::nullopt}, error);
+        repo.update_entry(kNameWithOrientation, 0,
+                          th::Position{10, 20, 30, std::nullopt}, error);
     check(ok, "update_entry succeeds even without an orientation");
 
     std::string content = read_file(path);
@@ -111,7 +112,7 @@ void test_insert_after(const std::filesystem::path& dir) {
     const std::string new_name = "新增-\\path-\"quoted\"";
     std::string error;
     bool ok = repo.insert_entry_after(
-        0, kNameNormal, th::TeleportPoint{new_name, th::Position{100, 200, 300, 4.5}}, 571,
+        kNameNormal, 0, th::TeleportPoint{new_name, th::Position{100, 200, 300, 4.5}}, 571,
         error);
     check(ok, "insert_entry_after succeeds for a matching anchor");
 
@@ -131,16 +132,16 @@ void test_insert_after(const std::filesystem::path& dir) {
 
     // The inserted escaped name must decode back to the original description
     // so later 读取到炉石 updates can still find it.
-    ok = repo.update_entry(new_name, th::Position{101, 201, 301, 4.6}, error);
+    ok = repo.update_entry(new_name, 0, th::Position{101, 201, 301, 4.6}, error);
     check(ok, "an inserted escaped name can be found and updated later");
     content = read_file(path);
     check(content.find("{\"新增-\\\\path-\\\"quoted\\\"\", 571, 101, 201, 301, 4.6},") !=
               std::string::npos,
           "later update preserves inserted name/mapId and changes xyzo");
 
-    ok = repo.insert_entry_after(1, new_name,
-                                 th::TeleportPoint{"no-r", th::Position{1, 2, 3, std::nullopt}},
-                                 1, error);
+    ok = repo.insert_entry_after(new_name, 0,
+                                  th::TeleportPoint{"no-r", th::Position{1, 2, 3, std::nullopt}},
+                                  1, error);
     check(ok, "insert succeeds without an orientation");
     content = read_file(path);
     check(content.find("{\"no-r\", 1, 1, 2, 3, 0},") != std::string::npos,
@@ -154,17 +155,18 @@ void test_insert_bad_anchor_leaves_file_untouched(const std::filesystem::path& d
     th::TeleportLuaRepository repo(path.string());
     std::string error;
     bool ok = repo.insert_entry_after(
-        99, "does-not-exist", th::TeleportPoint{"new", th::Position{1, 2, 3, 0.0}}, 0, error);
+        "does-not-exist", 0, th::TeleportPoint{"new", th::Position{1, 2, 3, 0.0}}, 0, error);
     check(!ok, "insert with an out-of-range anchor returns false");
     check(!error.empty(), "out-of-range insert anchor sets a descriptive error");
     check(read_file(path) == make_fixture(), "failed insert leaves the file byte-for-byte intact");
 }
 
-void test_duplicate_anchor_uses_index(const std::filesystem::path& dir) {
+void test_dynamic_anchor_uses_name_occurrence(const std::filesystem::path& dir) {
     auto path = dir / "duplicate.lua";
     const std::string fixture =
         "local FAV = {\n"
         "    {\"dup\", 0, 1, 2, 3, 0},\n"
+        "    {\"lua-only\", 530, 20, 21, 22, 0},\n"
         "    {\"middle\", 0, 4, 5, 6, 0},\n"
         "    {\"dup\", 1, 7, 8, 9, 0},\n"
         "}\n";
@@ -173,18 +175,24 @@ void test_duplicate_anchor_uses_index(const std::filesystem::path& dir) {
     th::TeleportLuaRepository repo(path.string());
     std::string error;
     bool ok = repo.insert_entry_after(
-        2, "dup", th::TeleportPoint{"after-second", th::Position{10, 11, 12, 1.5}}, 571, error);
-    check(ok, "duplicate anchor can be selected by its global index");
+        "dup", 1, th::TeleportPoint{"after-second", th::Position{10, 11, 12, 1.5}}, 571, error);
+    check(ok, "duplicate anchor can be selected by its name occurrence");
     std::string content = read_file(path);
     check(content.find("{\"dup\", 1, 7, 8, 9, 0},\n"
                        "    {\"after-second\", 571, 10, 11, 12, 1.5},") != std::string::npos,
-          "insert targets the selected duplicate rather than the first matching name");
+          "insert targets the selected duplicate despite unrelated Lua-only rows");
 
-    const std::string before_mismatch = content;
+    ok = repo.update_entry("dup", 1, th::Position{70, 80, 90, 2.5}, error);
+    check(ok, "second duplicate can be updated by occurrence");
+    content = read_file(path);
+    check(content.find("{\"dup\", 1, 70, 80, 90, 2.5},") != std::string::npos,
+          "dynamic update targets the selected duplicate");
+
+    const std::string before_missing = content;
     ok = repo.insert_entry_after(
-        1, "dup", th::TeleportPoint{"wrong", th::Position{1, 2, 3, 0.0}}, 0, error);
-    check(!ok, "index/name mismatch is rejected as an out-of-sync Lua table");
-    check(read_file(path) == before_mismatch, "index/name mismatch leaves the file untouched");
+        "dup", 2, th::TeleportPoint{"wrong", th::Position{1, 2, 3, 0.0}}, 0, error);
+    check(!ok, "missing duplicate occurrence is rejected");
+    check(read_file(path) == before_missing, "missing occurrence leaves the file untouched");
 }
 
 void test_category_append_keeps_global_order(const std::filesystem::path& dir) {
@@ -199,6 +207,9 @@ void test_category_append_keeps_global_order(const std::filesystem::path& dir) {
     int global_index = -1;
     check(favourites.resolve_global_index("A", 1, global_index, error) && global_index == 1,
           "category-local selection resolves to its global favlist index");
+    size_t occurrence = 99;
+    check(favourites.resolve_description_occurrence("A", 1, occurrence, error) && occurrence == 0,
+          "unique selected description resolves to occurrence zero");
     check(favourites.append_in_category(
               "A", 1, th::TeleportPoint{"B-new", th::Position{4, 4, 4, std::nullopt}}, error),
           "append after the last item in a category succeeds");
@@ -206,6 +217,16 @@ void test_category_append_keeps_global_order(const std::filesystem::path& dir) {
     check(points.size() == 4 && points[2].description == "B-new" &&
               points[3].description == "B-one",
           "category append inserts directly after the selected global row, not at file end");
+
+    th::FavouritesService duplicates{th::FavlistRepository((dir / "duplicates.fav").string())};
+    duplicates.replace_all({
+        {"dup", th::Position{1, 1, 1, std::nullopt}},
+        {"other", th::Position{2, 2, 2, std::nullopt}},
+        {"dup", th::Position{3, 3, 3, std::nullopt}},
+    });
+    check(duplicates.resolve_description_occurrence(th::ALL_CATEGORY, 2, occurrence, error) &&
+              occurrence == 1,
+          "second duplicate resolves to occurrence one independently of global row index");
 }
 
 void test_unknown_name_fails_gracefully(const std::filesystem::path& dir) {
@@ -214,7 +235,8 @@ void test_unknown_name_fails_gracefully(const std::filesystem::path& dir) {
 
     th::TeleportLuaRepository repo(path.string());
     std::string error;
-    bool ok = repo.update_entry("does-not-exist", th::Position{1, 2, 3, std::nullopt}, error);
+    bool ok = repo.update_entry("does-not-exist", 0,
+                                th::Position{1, 2, 3, std::nullopt}, error);
     check(!ok, "unknown name returns false instead of silently doing nothing");
     check(!error.empty(), "a descriptive error is set");
 
@@ -225,7 +247,7 @@ void test_unknown_name_fails_gracefully(const std::filesystem::path& dir) {
 void test_missing_file(const std::filesystem::path& dir) {
     th::TeleportLuaRepository repo((dir / "does_not_exist.lua").string());
     std::string error;
-    bool ok = repo.update_entry("anything", th::Position{1, 2, 3, std::nullopt}, error);
+    bool ok = repo.update_entry("anything", 0, th::Position{1, 2, 3, std::nullopt}, error);
     check(!ok, "missing file returns false");
     check(!error.empty(), "missing file sets a descriptive error");
 }
@@ -235,7 +257,7 @@ void test_missing_fav_table(const std::filesystem::path& dir) {
     write_file(path, "print(\"just some other lua file\")\n");
     th::TeleportLuaRepository repo(path.string());
     std::string error;
-    bool ok = repo.update_entry("anything", th::Position{1, 2, 3, std::nullopt}, error);
+    bool ok = repo.update_entry("anything", 0, th::Position{1, 2, 3, std::nullopt}, error);
     check(!ok, "file without a 'local FAV = {' table returns false");
     check(!error.empty(), "missing FAV table sets a descriptive error");
 }
@@ -247,7 +269,7 @@ void test_atomic_save_failure_preserves_original(const std::filesystem::path& di
 
     th::TeleportLuaRepository repo(path.string());
     std::string error;
-    bool ok = repo.update_entry(kNameNormal, th::Position{1, 2, 3, 4}, error);
+    bool ok = repo.update_entry(kNameNormal, 0, th::Position{1, 2, 3, 4}, error);
     check(!ok, "failure to create the temporary output returns false");
     check(!error.empty(), "temporary output failure sets a descriptive error");
     check(read_file(path) == make_fixture(), "temporary output failure preserves the live Lua file");
@@ -267,7 +289,7 @@ int main() {
     test_missing_orientation_preserves_existing_o(dir);
     test_insert_after(dir);
     test_insert_bad_anchor_leaves_file_untouched(dir);
-    test_duplicate_anchor_uses_index(dir);
+    test_dynamic_anchor_uses_name_occurrence(dir);
     test_category_append_keeps_global_order(dir);
     test_unknown_name_fails_gracefully(dir);
     test_missing_file(dir);

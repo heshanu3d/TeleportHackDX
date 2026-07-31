@@ -38,7 +38,12 @@ public:
     bool append_in_category(const std::string& category, int index, const TeleportPoint& point,
                              std::string& error);
     bool resolve_global_index(const std::string& category, int local_index, int& out,
-                              std::string& error) const;
+                               std::string& error) const;
+    // Zero-based occurrence of the selected description in the full list.
+    // Used to match duplicate names in a separately edited Teleport.lua
+    // without assuming both files have identical global row indexes.
+    bool resolve_description_occurrence(const std::string& category, int local_index,
+                                        size_t& out, std::string& error) const;
     bool replace_in_category(const std::string& category, int index, const TeleportPoint& point,
                                std::string& error);
     bool delete_in_category(const std::string& category, int index, TeleportPoint& removed,

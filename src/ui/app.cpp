@@ -533,9 +533,13 @@ void App::render_crud_rows() {
             if (teleport_->read_position(pos)) {
                 auto pt = current_point();
                 if (pt) {
+                    size_t occurrence = 0;
                     std::string lua_error;
-                    TeleportLuaRepository lua_repo(resolve_path(settings_.teleport_lua_path));
-                    if (lua_repo.update_entry(pt->description, pos, lua_error)) {
+                    if (!favourites_.resolve_description_occurrence(
+                            selected_category_, selected_row_, occurrence, lua_error)) {
+                        log("[error] cannot resolve selected row: " + lua_error);
+                    } else if (TeleportLuaRepository(resolve_path(settings_.teleport_lua_path))
+                                   .update_entry(pt->description, occurrence, pos, lua_error)) {
                         log("Teleport.lua: updated '" + pt->description + "'");
                     } else {
                         log("[error] Teleport.lua update failed: " + lua_error);
@@ -564,11 +568,11 @@ void App::render_crud_rows() {
             Position pos;
             uint32_t map_id = 0;
             uint32_t map_id_after = 0;
-            int anchor_index = -1;
+            size_t anchor_occurrence = 0;
             if (!anchor) {
                 log("[error] selected row is no longer available");
-            } else if (!favourites_.resolve_global_index(selected_category_, selected_row_,
-                                                          anchor_index, error)) {
+            } else if (!favourites_.resolve_description_occurrence(
+                           selected_category_, selected_row_, anchor_occurrence, error)) {
                 log("[error] cannot resolve selected row: " + error);
             } else if (!teleport_->read_map_id(map_id)) {
                 log("[error] cannot read mapId: " + teleport_->last_error());
@@ -582,8 +586,8 @@ void App::render_crud_rows() {
                 TeleportPoint point{desc_buf_, pos};
                 std::string lua_error;
                 TeleportLuaRepository lua_repo(resolve_path(settings_.teleport_lua_path));
-                if (!lua_repo.insert_entry_after(static_cast<size_t>(anchor_index),
-                                                 anchor->description, point, map_id, lua_error)) {
+                if (!lua_repo.insert_entry_after(anchor->description, anchor_occurrence, point,
+                                                  map_id, lua_error)) {
                     log("[error] Teleport.lua insert failed: " + lua_error);
                 } else if (!favourites_.append_in_category(selected_category_, selected_row_, point,
                                                             error)) {

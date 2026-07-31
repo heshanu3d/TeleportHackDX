@@ -74,6 +74,9 @@ layout rationale this is based on):
   `Teleport.lua`. The new row uses the description input plus the current
   3.3.5 character's mapId/x/y/z/orientation. Like ordinary insert-after, the
   in-memory favlist change still requires Save to persist to `favlist.fav`.
+  Both Lua operations parse the live FAV table and locate the selected name
+  (plus its duplicate occurrence), so unrelated Lua edits or reordering do
+  not require identical row indexes with `favlist.fav`.
 
 **Not ported** (out of scope, see project discussion): the AutoIt
 `bot/` scripts (hardcoded-account auto-login, dungeon farm bots) and

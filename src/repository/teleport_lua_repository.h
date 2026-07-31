@@ -27,22 +27,21 @@ public:
 
     const std::string& path() const { return path_; }
 
-    // Finds the FAV entry whose name exactly matches `description` inside
-    // the `local FAV = { ... }` table and overwrites its x/y/z (always)
-    // and o (only if `pos.orientation` has a value -- a missing
+    // Dynamically parses the current FAV table, finds the zero-based
+    // `description_occurrence` of the exact decoded name, and overwrites
+    // its x/y/z (always) and o (only if `pos.orientation` has a value -- a missing
     // orientation leaves the existing o field untouched, same
     // preserve-current-facing convention used for favlist.fav). Returns
     // false with `error` set if the file/table/entry can't be found.
-    bool update_entry(const std::string& description, const Position& pos,
-                       std::string& error) const;
+    bool update_entry(const std::string& description, size_t description_occurrence,
+                      const Position& pos, std::string& error) const;
 
-    // Locates the zero-based FAV row `after_index`, verifies its decoded name
-    // matches `after_description`, then inserts immediately after it. The
-    // index disambiguates duplicate descriptions and the name check detects
-    // a Teleport.lua that is out of sync with favlist.fav.
-    bool insert_entry_after(size_t after_index, const std::string& after_description,
-                            const TeleportPoint& point, uint32_t map_id,
-                            std::string& error) const;
+    // Dynamically parses the current FAV table and inserts after the selected
+    // occurrence of `after_description`. Unrelated Lua additions, deletions,
+    // and reordering do not affect anchor lookup.
+    bool insert_entry_after(const std::string& after_description,
+                            size_t description_occurrence, const TeleportPoint& point,
+                            uint32_t map_id, std::string& error) const;
 
 private:
     std::string path_;
