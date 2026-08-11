@@ -157,6 +157,8 @@ CMake：`th_core` 这个 STATIC 库包含除了 `dllmain.cpp`/`core/hook.cpp`
   `GetWindowRect(hwnd,...)` —— 那时候 `DestroyWindow` 早就已经让句柄失效了。
   改为通过 `WM_MOVE`/`WM_SIZE` 持续把矩形记录到一个全局变量里，退出时用
   最后一次记录到的值（见 `src/desktop/main.cpp`）。
+- 桌面 EXE 的进程工具栏提供 `Always on top` 开关，通过 `SetWindowPos` 切换原生窗口置顶状态，
+  并使用 `settings.json` 的 `desktop_always_on_top` 持久化；注入 DLL 不显示也不应用此开关。
 - **所有地址都假定镜像加载在默认（未开 ASLR）基址** —— 和原始 AutoIt/Python
   工具的假设一致；没有实现重定位逻辑，而且是刻意不做的（这里不要加不必要的
   复杂度）。

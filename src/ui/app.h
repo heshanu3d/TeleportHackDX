@@ -119,6 +119,7 @@ private:
     void log(const std::string& msg);
     void reload_process_list();
     void attach_to_pid(unsigned long pid);
+    bool set_desktop_always_on_top(bool enabled);
 
     std::vector<TeleportPoint> displayed_points() const;
     std::optional<TeleportPoint> current_point() const;

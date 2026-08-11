@@ -29,6 +29,7 @@ struct Settings {
     std::string last_category = ALL_CATEGORY;
     double speed_value = 7.0;
     bool fast_step = false;
+    bool desktop_always_on_top = false;
 
     // Dear ImGui's native ini-format layout snapshots, stored as escaped
     // JSON strings so both modes keep independent window/table layouts

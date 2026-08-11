@@ -81,7 +81,13 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
     switch_version(settings_.default_version);
     reload_favourites();
     reload_hotkeys();
-    if (mode_ == BackendMode::Attach) reload_process_list();
+    if (mode_ == BackendMode::Attach) {
+        reload_process_list();
+        if (settings_.desktop_always_on_top && !set_desktop_always_on_top(true)) {
+            log("[error] cannot restore always-on-top state (GetLastError=" +
+                std::to_string(GetLastError()) + ")");
+        }
+    }
 
     log("initialized (" + (version_ ? version_->name : std::string("no version")) + ")");
 }
@@ -306,6 +312,22 @@ void App::render_process_list() {
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Refresh")) reload_process_list();
+    ImGui::SameLine();
+    const char* topmost_label =
+        settings_.desktop_always_on_top ? "Always on top: ON" : "Always on top: OFF";
+    if (ImGui::SmallButton(topmost_label)) {
+        const bool enabled = !settings_.desktop_always_on_top;
+        if (set_desktop_always_on_top(enabled)) {
+            settings_.desktop_always_on_top = enabled;
+            std::string error;
+            if (!settings_repo_.save(settings_, error)) {
+                log("[error] settings save failed: " + error);
+            }
+        } else {
+            log("[error] cannot change always-on-top state (GetLastError=" +
+                std::to_string(GetLastError()) + ")");
+        }
+    }
 
     ImGui::BeginChild("##proclist", ImVec2(0, 70), true);
     if (process_list_.empty()) {
@@ -324,6 +346,12 @@ void App::render_process_list() {
     if (ImGui::SmallButton("Attach")) {
         if (selected_pid_ != 0) attach_to_pid(selected_pid_);
     }
+}
+
+bool App::set_desktop_always_on_top(bool enabled) {
+    if (mode_ != BackendMode::Attach || !hwnd_) return false;
+    return SetWindowPos(hwnd_, enabled ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE) != FALSE;
 }
 
 void App::render_version_row() {

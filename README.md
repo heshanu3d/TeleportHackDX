@@ -51,7 +51,8 @@ layout rationale this is based on):
 - Chinese IME input in the injected ImGui text fields, with IME context and
   message ownership isolated from WoW's own chat input
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
-  since the DLL build always operates on its own host process
+  since the DLL build always operates on its own host process. The desktop
+  toolbar also has a persisted `Always on top` toggle for its native window.
 - `TeleportHackLauncher.exe`: reads `wow_exe_path` from the shared
   `settings.json`, starts that Win32 `WoW.exe`, injects the sibling
   `TeleportHackDX.dll` once process initialization permits remote threads,

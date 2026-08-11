@@ -148,6 +148,7 @@ Settings SettingsRepository::load() const {
     get_str("last_category", s.last_category);
     get_double("speed_value", s.speed_value);
     get_bool("fast_step", s.fast_step);
+    get_bool("desktop_always_on_top", s.desktop_always_on_top);
     get_str("dll_imgui_layout", s.dll_imgui_layout);
     get_str("desktop_imgui_layout", s.desktop_imgui_layout);
     get_int("window_x", s.window_x);
@@ -178,6 +179,8 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"last_category\": \"" << json_escape(settings.last_category) << "\",\n";
     fh << "  \"speed_value\": " << settings.speed_value << ",\n";
     fh << "  \"fast_step\": " << (settings.fast_step ? "true" : "false") << ",\n";
+    fh << "  \"desktop_always_on_top\": "
+       << (settings.desktop_always_on_top ? "true" : "false") << ",\n";
     fh << "  \"dll_imgui_layout\": \"" << json_escape(settings.dll_imgui_layout) << "\",\n";
     fh << "  \"desktop_imgui_layout\": \"" << json_escape(settings.desktop_imgui_layout)
        << "\",\n";
