@@ -28,6 +28,7 @@ struct Settings {
     std::string teleport_lua_path = "";
     std::string last_category = ALL_CATEGORY;
     double speed_value = 7.0;
+    double movement_speed_value = 7.0;
     bool fast_step = false;
     bool desktop_always_on_top = false;
 

@@ -342,7 +342,8 @@ cmake --build . --config Release
     仅 3.3.5 支持。和普通"插后"一样，列表改动仍需点击"保存"才会写入 favlist.fav。</td></tr>
   <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt</td></tr>
   <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
-  <tr><td><strong>Speed 行</strong></td><td>设置移动速度（仅 3.3.5 支持，1.12.x 灰色不可用）</td></tr>
+  <tr><td><strong>Global speed</strong></td><td>写入 3.3.5 玩家对象的全局速度字段 <code>0x814</code>；输入数值后点 Apply。1.12.x 不支持。</td></tr>
+  <tr><td><strong>Move speed</strong></td><td>从 The Hitchhiker's Hack 移植的移动速度开关：输入数值后点 Enable，启用期间持续写入普通移动 <code>0x81C</code> 和游泳 <code>0x824</code>；点 Disable 后分别恢复默认值 7.0 和 4.7。仅 3.3.5 支持，DLL/EXE 均可用。</td></tr>
   <tr><td><strong>Import / Export</strong></td><td>导入替换全部 / 合并去重导入 / 导出到指定 <code>.fav</code> 文件（弹出系统文件选择框）</td></tr>
   <tr><td><strong>Settings</strong></td><td>调整分步移动参数，以及 favlist.fav、hotkey.txt、WoW.exe 和 Teleport.lua 的路径</td></tr>
   <tr><td><strong>日志区</strong></td><td>所有操作结果、错误信息都会打印在这里</td></tr>
@@ -447,8 +448,8 @@ cmake --build . --config Release
     可能是客户端版本/补丁不完全匹配 <code>src/domain/versions.cpp</code> 里写死的偏移，
     为了安全起见程序会拒绝写入而不是覆盖成未知内容。
   </li>
-  <li><strong>Speed 按钮点了没反应：</strong>
-    Speed 只在 3.3.5 客户端上支持，1.12.1/1.12.3 客户端本身没有这个可写字段。
+  <li><strong>Global speed / Move speed 按钮点了没反应：</strong>
+    两种速度功能都只在 3.3.5 客户端上支持，1.12.1/1.12.3 客户端没有这些玩家对象字段。
   </li>
   <li><strong>桌面版点 Attach 没反应 / 提示 "failed to attach"：</strong>
     大概率是权限问题——把 <code>TeleportHackDesktop.exe</code> 右键"以管理员身份运行"，

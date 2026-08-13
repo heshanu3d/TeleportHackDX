@@ -28,6 +28,7 @@
 #include "repository/favlist_repository.h"
 #include "services/favourites_porter.h"
 #include "services/favourites_service.h"
+#include "services/feature_service.h"
 #include "services/teleport_service.h"
 
 namespace {
@@ -226,6 +227,40 @@ void test_112x_never_touches_pos_r() {
     }
 }
 
+void test_335_movement_speed_memory() {
+    const th::GameVersion* version = th::find_version("3.3.5");
+    check(version != nullptr, "3.3.5 movement-speed profile exists");
+    if (!version) return;
+    check(version->speed_move == 0x81C && version->speed_swim == 0x824,
+          "The Hitchhiker's Hack movement/swim offsets are ported exactly");
+
+    FakeBackend backend;
+    constexpr uintptr_t pb1 = 0x4100, pb2 = 0x4200, base = 0x4300;
+    backend.pointers[version->static_player] = pb1;
+    backend.pointers[pb1 + version->pb_pointer1] = pb2;
+    backend.pointers[pb2 + version->pb_pointer2] = base;
+
+    th::FeatureService service(backend, *version);
+    check(service.set_movement_speed(25.0), "movement speed writes");
+    check(near_eq(backend.floats[base + version->speed_move], 25.0),
+          "movement speed writes custom value to 0x81C");
+    check(near_eq(backend.floats[base + version->speed_swim], 25.0),
+          "movement speed writes custom value to 0x824 swim field");
+    check(!service.set_movement_speed(0.0), "non-positive movement speed is rejected");
+
+    check(service.reset_movement_speed(), "movement speed reset writes");
+    check(near_eq(backend.floats[base + version->speed_move], 7.0),
+          "movement speed reset restores run default 7");
+    check(near_eq(backend.floats[base + version->speed_swim], 4.7),
+          "movement speed reset restores swim default 4.7");
+
+    for (const char* name : {"1.12.1", "1.12.3"}) {
+        const th::GameVersion* vanilla = th::find_version(name);
+        check(vanilla && !vanilla->supports_movement_speed(),
+              (std::string(name) + " does not expose 3.3.5 movement speed offsets").c_str());
+    }
+}
+
 } // namespace
 
 int main() {
@@ -237,6 +272,7 @@ int main() {
     test_merge_signature_includes_orientation(dir);
     test_335_orientation_memory();
     test_112x_never_touches_pos_r();
+    test_335_movement_speed_memory();
 
     std::error_code ignored;
     std::filesystem::remove_all(dir, ignored);

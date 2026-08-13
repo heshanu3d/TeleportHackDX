@@ -42,7 +42,10 @@ layout rationale this is based on):
   original `HotKeySet()` behaviour
 - Byte-patch toggles: AntiJump, AutoLoot, PatchLoot, LuaUnlock
 - Speed hack (3.3.5 only -- the client field this writes doesn't exist on
-  1.12.x)
+  1.12.x): the existing global speed field (`0x814`), plus a separately
+  toggleable movement-speed port from The Hitchhiker's Hack that continuously
+  writes run (`0x81C`) and swim (`0x824`) speed and restores `7.0`/`4.7` when
+  disabled. Both injected and desktop modes share this feature.
 - Import / merge (dedup by description+x+y+z) / replace / export favourites
 - Shared application settings persisted to `settings.json` next to the
   DLL/EXE. The same file holds separate DLL and desktop ImGui layout

@@ -105,9 +105,9 @@ src/
   services/                      TeleportService（指针链解析、坐标轴交换的
                                  各种奇怪规则、分步传送 —— 既有阻塞版本，
                                  也有每帧驱动一次的非阻塞
-                                 TeleportStepSession），FeatureService
+  TeleportStepSession），FeatureService
                                  （AntiJump/AutoLoot/PatchLoot/LuaUnlock
-                                 字节补丁开关 + 3.3.5 加速外挂），
+                                 字节补丁开关 + 3.3.5 全局/移动速度外挂），
                                  FavouritesService + FavouritesPorter
                                  （增删改查/导入导出/合并去重），
                                  HotkeyService（Win32 的 RegisterHotKey，

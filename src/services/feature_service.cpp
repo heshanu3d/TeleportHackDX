@@ -1,6 +1,19 @@
 #include "services/feature_service.h"
 
+#include <cmath>
+
 namespace th {
+
+bool FeatureService::resolve_player_base(uintptr_t& base) {
+    uintptr_t pb1, pb2;
+    if (!backend_.read_pointer(version_.static_player, pb1) ||
+        !backend_.read_pointer(pb1 + version_.pb_pointer1, pb2) ||
+        !backend_.read_pointer(pb2 + version_.pb_pointer2, base)) {
+        last_error_ = "failed to resolve player base";
+        return false;
+    }
+    return true;
+}
 
 void FeatureService::set_jump_gravity(double value) {
     if (version_.jump_gravity) {
@@ -132,15 +145,48 @@ bool FeatureService::set_speed(double speed) {
         last_error_ = "speed not supported on this client";
         return false;
     }
-    uintptr_t pb1, pb2, base;
-    if (!backend_.read_pointer(version_.static_player, pb1) ||
-        !backend_.read_pointer(pb1 + version_.pb_pointer1, pb2) ||
-        !backend_.read_pointer(pb2 + version_.pb_pointer2, base)) {
-        last_error_ = "failed to resolve player base for speed";
+    if (!std::isfinite(speed) || speed <= 0.0) {
+        last_error_ = "speed must be a positive finite number";
         return false;
     }
+    uintptr_t base;
+    if (!resolve_player_base(base)) return false;
     if (!backend_.write_float(base + version_.speed_global, static_cast<float>(speed))) {
-        last_error_ = "failed to write speed";
+        last_error_ = "failed to write global speed";
+        return false;
+    }
+    return true;
+}
+
+bool FeatureService::set_movement_speed(double speed) {
+    if (!version_.supports_movement_speed()) {
+        last_error_ = "movement speed not supported on this client";
+        return false;
+    }
+    if (!std::isfinite(speed) || speed <= 0.0) {
+        last_error_ = "movement speed must be a positive finite number";
+        return false;
+    }
+    uintptr_t base;
+    if (!resolve_player_base(base)) return false;
+    if (!backend_.write_float(base + version_.speed_move, static_cast<float>(speed)) ||
+        !backend_.write_float(base + version_.speed_swim, static_cast<float>(speed))) {
+        last_error_ = "failed to write movement/swim speed";
+        return false;
+    }
+    return true;
+}
+
+bool FeatureService::reset_movement_speed() {
+    if (!version_.supports_movement_speed()) {
+        last_error_ = "movement speed not supported on this client";
+        return false;
+    }
+    uintptr_t base;
+    if (!resolve_player_base(base)) return false;
+    if (!backend_.write_float(base + version_.speed_move, 7.0f) ||
+        !backend_.write_float(base + version_.speed_swim, 4.7f)) {
+        last_error_ = "failed to restore movement/swim speed";
         return false;
     }
     return true;

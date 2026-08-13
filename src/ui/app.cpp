@@ -69,6 +69,8 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
     }
 
     std::snprintf(speed_buf_, sizeof(speed_buf_), "%.6g", settings_.speed_value);
+    std::snprintf(movement_speed_buf_, sizeof(movement_speed_buf_), "%.6g",
+                  settings_.movement_speed_value);
     selected_category_ = settings_.last_category.empty() ? ALL_CATEGORY : settings_.last_category;
 
     // porter_ was bound to favourites_ once in App::App()'s initializer
@@ -93,6 +95,13 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
 }
 
 void App::switch_version(const std::string& name) {
+    if (movement_speed_enabled_ && features_) {
+        if (!features_->reset_movement_speed()) {
+            log("[warn] failed to restore movement speed before profile switch: " +
+                features_->last_error());
+        }
+        movement_speed_enabled_ = false;
+    }
     const GameVersion* v = find_version(name);
     if (!v) v = &all_versions().front();
     version_ = v;
@@ -109,6 +118,13 @@ void App::reload_process_list() {
 
 void App::attach_to_pid(unsigned long pid) {
     if (mode_ != BackendMode::Attach) return;
+    if (movement_speed_enabled_ && features_) {
+        if (!features_->reset_movement_speed()) {
+            log("[warn] failed to restore movement speed before attach: " +
+                features_->last_error());
+        }
+        movement_speed_enabled_ = false;
+    }
     auto* oop = static_cast<OutOfProcessBackend*>(backend_.get());
     if (oop->attach(pid)) {
         selected_pid_ = pid;
@@ -207,6 +223,11 @@ void App::tick() {
     if (teleport_ && step_session_.active()) {
         step_session_.tick(*teleport_);
     }
+    if (movement_speed_enabled_ && features_ &&
+        !features_->set_movement_speed(settings_.movement_speed_value)) {
+        movement_speed_enabled_ = false;
+        log("[error] movement speed disabled: " + features_->last_error());
+    }
 }
 
 bool App::on_wndproc(UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
@@ -243,6 +264,10 @@ bool App::capture_imgui_layout() {
 }
 
 void App::shutdown() {
+    if (movement_speed_enabled_ && features_) {
+        features_->reset_movement_speed(); // best-effort during normal EXE/DLL teardown
+        movement_speed_enabled_ = false;
+    }
     capture_imgui_layout();
     std::string error;
     if (!settings_repo_.save(settings_, error)) {
@@ -664,7 +689,7 @@ void App::render_teleport_button() {
 }
 
 void App::render_speed_row() {
-    ImGui::TextUnformatted("Speed:");
+    ImGui::TextUnformatted("Global speed:");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(80);
     ImGui::InputText("##speed", speed_buf_, sizeof(speed_buf_),
@@ -684,6 +709,42 @@ void App::render_speed_row() {
         }
     }
     if (!version_ || !version_->supports_speed()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("(unsupported on this client)");
+    }
+
+    ImGui::TextUnformatted("Move speed:");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(80);
+    ImGui::InputText("##movement_speed", movement_speed_buf_, sizeof(movement_speed_buf_),
+                      ImGuiInputTextFlags_CharsDecimal | ImGuiInputTextFlags_CharsScientific);
+    ImGui::SameLine();
+    const char* toggle_label = movement_speed_enabled_ ? "Disable##movement_speed"
+                                                       : "Enable##movement_speed";
+    if (ImGui::Button(toggle_label)) {
+        if (movement_speed_enabled_) {
+            if (features_ && features_->reset_movement_speed()) {
+                movement_speed_enabled_ = false;
+                log("movement speed restored to run=7, swim=4.7");
+            } else if (features_) {
+                log("[error] movement speed: " + features_->last_error());
+            }
+        } else {
+            try {
+                const double value = std::stod(movement_speed_buf_);
+                if (features_ && features_->set_movement_speed(value)) {
+                    settings_.movement_speed_value = value;
+                    movement_speed_enabled_ = true;
+                    log("movement + swim speed enabled at " + std::to_string(value));
+                } else if (features_) {
+                    log("[error] movement speed: " + features_->last_error());
+                }
+            } catch (...) {
+                log("[error] movement speed must be a number");
+            }
+        }
+    }
+    if (!version_ || !version_->supports_movement_speed()) {
         ImGui::SameLine();
         ImGui::TextDisabled("(unsupported on this client)");
     }

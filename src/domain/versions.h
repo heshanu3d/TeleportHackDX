@@ -35,6 +35,8 @@ struct GameVersion {
     uintptr_t pos_z = 0;
     uintptr_t pos_r = 0;
     uintptr_t speed_global = 0;
+    uintptr_t speed_move = 0;
+    uintptr_t speed_swim = 0;
 
     // Multi-level write offsets (vanilla / 1.12.x only)
     std::vector<uintptr_t> dst_x_offsets;
@@ -49,6 +51,7 @@ struct GameVersion {
     uintptr_t lua_unlock = 0;
 
     bool supports_speed() const { return speed_global != 0; }
+    bool supports_movement_speed() const { return speed_move != 0 && speed_swim != 0; }
     bool supports_anti_jump() const { return anti_jump != 0; }
     bool supports_autoloot() const { return autoloot_2 != 0; }
     bool is_pointer_chain() const { return pb_pointer1 != 0 || pb_pointer2 != 0; }

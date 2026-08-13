@@ -44,6 +44,7 @@ int main() {
     settings.default_version = "3.3.5";
     settings.wow_exe_path = "C:\\Games\\WoW 3.3.5\\WoW.exe";
     settings.desktop_always_on_top = true;
+    settings.movement_speed_value = 25.0;
     settings.dll_imgui_layout = dll_layout;
     settings.desktop_imgui_layout = desktop_layout;
 
@@ -59,6 +60,8 @@ int main() {
           "launcher WoW.exe path survives JSON escaping and reload");
     check(loaded.desktop_always_on_top,
           "desktop always-on-top preference survives save and reload");
+    check(loaded.movement_speed_value == 25.0,
+          "movement speed value survives save and reload");
     check(loaded.dll_imgui_layout != loaded.desktop_imgui_layout,
           "DLL and desktop layouts remain independent");
 

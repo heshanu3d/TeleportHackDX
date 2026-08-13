@@ -25,6 +25,8 @@ public:
     bool toggle_lua_unlock(bool& now_on);
 
     bool set_speed(double speed);
+    bool set_movement_speed(double speed);
+    bool reset_movement_speed();
 
     const std::string& last_error() const { return last_error_; }
 
@@ -34,6 +36,7 @@ private:
     std::string last_error_;
 
     void set_jump_gravity(double value);
+    bool resolve_player_base(uintptr_t& base);
 };
 
 } // namespace th

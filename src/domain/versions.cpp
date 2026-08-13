@@ -66,6 +66,10 @@ GameVersion make_3_3_5() {
     v.pos_z = 0x7A0;
     v.pos_r = 0x7A8;
     v.speed_global = 0x814;
+    // The Hitchhiker's Hack 3.3.5 offsets: ordinary movement and swim
+    // speed. Its enabled loop writes the same custom value to both.
+    v.speed_move = 0x81C;
+    v.speed_swim = 0x824;
     return v;
 }
 

@@ -147,6 +147,7 @@ Settings SettingsRepository::load() const {
     get_str("teleport_lua_path", s.teleport_lua_path);
     get_str("last_category", s.last_category);
     get_double("speed_value", s.speed_value);
+    get_double("movement_speed_value", s.movement_speed_value);
     get_bool("fast_step", s.fast_step);
     get_bool("desktop_always_on_top", s.desktop_always_on_top);
     get_str("dll_imgui_layout", s.dll_imgui_layout);
@@ -178,6 +179,7 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"teleport_lua_path\": \"" << json_escape(settings.teleport_lua_path) << "\",\n";
     fh << "  \"last_category\": \"" << json_escape(settings.last_category) << "\",\n";
     fh << "  \"speed_value\": " << settings.speed_value << ",\n";
+    fh << "  \"movement_speed_value\": " << settings.movement_speed_value << ",\n";
     fh << "  \"fast_step\": " << (settings.fast_step ? "true" : "false") << ",\n";
     fh << "  \"desktop_always_on_top\": "
        << (settings.desktop_always_on_top ? "true" : "false") << ",\n";

@@ -102,6 +102,8 @@ private:
     char search_buf_[128] = {0};
     char desc_buf_[256] = {0};
     char speed_buf_[32] = "7";
+    char movement_speed_buf_[32] = "7";
+    bool movement_speed_enabled_ = false;
     int selected_row_ = -1; // index within the currently *displayed* rows
     char import_path_buf_[512] = {0};
     char export_path_buf_[512] = {0};
