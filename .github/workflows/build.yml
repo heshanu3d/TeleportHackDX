@@ -22,13 +22,20 @@ jobs:
       - name: Test (Release)
         run: ctest --test-dir build -C Release --output-on-failure
 
-      - name: Restore .NET dependencies
-        run: dotnet restore csharp/TeleportHack.sln
+      - name: .NET SDK / runtime probe
+        # Prints the SDK we're building against so the build log always
+        # documents which .NET version produced the C# binaries; also
+        # surfaces early if the runner image ever loses the SDK we need.
+        run: dotnet --info
 
       - name: Publish WinForms EXE (framework-dependent, x86)
-        # framework-dependent means the ~150 KB EXE relies on the .NET 8
-        # runtime being installed system-wide -- matches the user's stated
-        # policy of small binaries (see chat 2026-08-17).
+        # `dotnet publish` implies restore + build. Using the csproj
+        # directly (instead of the solution) avoids the sln's Platform
+        # matrix -- our C# projects only ship a single Any CPU / x86
+        # PlatformTarget configuration.
+        # framework-dependent (~150 KB EXE) requires the .NET 8 x86 runtime
+        # on the user machine; matches the size/policy decision from the
+        # last chat.
         run: >
           dotnet publish csharp/TeleportHackDesktopWinForms/TeleportHackDesktopWinForms.csproj
           --configuration Release
