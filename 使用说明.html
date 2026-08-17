@@ -413,8 +413,10 @@ cmake --build . --config Release
 <div class="card">
   <code>TeleportHackDesktopWinForms.exe</code> 与 <code>TeleportHackDesktopWpf.exe</code>
   通过 <code>TeleportHackCApi.dll</code> 调用同一套 C++ 业务服务。两者当前支持进程 Attach、版本选择、
-  分类/搜索、收藏点插前/插后/编辑/删除/追加/保存/重载、双击传送、四个补丁开关、Global/Move speed、
-  日志与 Always-on-top。运行前需安装 <strong>.NET 8 x86 Desktop Runtime</strong>。
+  分类/搜索、收藏点插前/插后/编辑/删除/追加/保存/重载、导入/导出、两个 Teleport.lua 操作、
+  hotkey.txt 全局热键、双击传送、四个补丁开关、Global/Move speed、日志与 Always-on-top。
+  两者读取共享 settings.json，但分别保存自己的窗口位置/大小；运行前需安装
+  <strong>.NET 8 x86 Desktop Runtime</strong>。
 </div>
 <h3>使用方法</h3>
 <ol>

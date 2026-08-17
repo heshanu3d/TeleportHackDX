@@ -5,6 +5,7 @@
 #include "capi/api.h"
 
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <optional>
 #include <string>
@@ -15,8 +16,10 @@
 #include "memory/outofprocess_backend.h"
 #include "repository/favlist_repository.h"
 #include "services/favourites_service.h"
+#include "services/favourites_porter.h"
 #include "services/feature_service.h"
 #include "services/teleport_service.h"
+#include "repository/teleport_lua_repository.h"
 #include "util/process_list.h"
 
 namespace {
@@ -61,6 +64,28 @@ struct th_session {
         }
     }
 };
+
+namespace {
+
+template <typename Function>
+int32_t guarded_call(th_session* session, const char* operation, Function&& function) noexcept {
+    try {
+        return function();
+    } catch (const std::exception& ex) {
+        if (session) {
+            try { session->last_error = std::string(operation) + ": " + ex.what(); }
+            catch (...) { }
+        }
+    } catch (...) {
+        if (session) {
+            try { session->last_error = std::string(operation) + ": unknown native exception"; }
+            catch (...) { }
+        }
+    }
+    return -1;
+}
+
+} // namespace
 
 // -------------------------------------------------------------------------
 // Versions
@@ -308,16 +333,18 @@ th_session_toggle_lua_unlock(th_session* session, int32_t* now_on) {
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_load(th_session* session,
                                                                      const char* path) {
     if (!session || !path) return -1;
-    th::FavlistRepository repo(path);
-    std::vector<th::TeleportPoint> points;
-    std::string error;
-    if (!repo.load(points, error)) {
-        session->last_error = error;
-        return -1;
-    }
-    session->favourites = std::move(points);
-    session->last_error.clear();
-    return 0;
+    return guarded_call(session, "load favourites", [&]() -> int32_t {
+        th::FavlistRepository repo(path);
+        std::vector<th::TeleportPoint> points;
+        std::string error;
+        if (!repo.load(points, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites = std::move(points);
+        session->last_error.clear();
+        return 0;
+    });
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_count(th_session* session) {
@@ -392,18 +419,20 @@ int32_t run_mutator(th_session* session, MutatorFn fn, const char* category, int
                     const char* description, double x, double y, double z, int32_t has_r,
                     double r) {
     if (!session || !category || !description) return -1;
-    th::Position pos;
-    make_position(x, y, z, has_r, r, pos);
-    th::TeleportPoint point{description, pos};
-    auto service = make_service(session);
-    std::string error;
-    if (!(service.*fn)(category, local_index, point, error)) {
-        session->last_error = error;
-        return -1;
-    }
-    session->favourites = service.all_points();
-    session->last_error.clear();
-    return 0;
+    return guarded_call(session, "favourites mutation", [&]() -> int32_t {
+        th::Position pos;
+        make_position(x, y, z, has_r, r, pos);
+        th::TeleportPoint point{description, pos};
+        auto service = make_service(session);
+        std::string error;
+        if (!(service.*fn)(category, local_index, point, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites = service.all_points();
+        session->last_error.clear();
+        return 0;
+    });
 }
 
 } // namespace
@@ -411,17 +440,21 @@ int32_t run_mutator(th_session* session, MutatorFn fn, const char* category, int
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
 th_favourites_category_count(th_session* session) {
     if (!session) return -1;
-    auto service = make_service(session);
-    return static_cast<int32_t>(service.category_names().size());
+    return guarded_call(session, "enumerate categories", [&]() -> int32_t {
+        auto service = make_service(session);
+        return static_cast<int32_t>(service.category_names().size());
+    });
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
 th_favourites_category_name(th_session* session, int32_t index, char* out, int32_t out_size) {
     if (!session) return -1;
-    auto service = make_service(session);
-    const auto names = service.category_names();
-    if (index < 0 || static_cast<size_t>(index) >= names.size()) return -1;
-    return copy_string(names[static_cast<size_t>(index)], out, out_size);
+    return guarded_call(session, "read category", [&]() -> int32_t {
+        auto service = make_service(session);
+        const auto names = service.category_names();
+        if (index < 0 || static_cast<size_t>(index) >= names.size()) return -1;
+        return copy_string(names[static_cast<size_t>(index)], out, out_size);
+    });
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
@@ -451,28 +484,160 @@ th_favourites_replace_in_category(th_session* session, const char* category, int
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
 th_favourites_delete_in_category(th_session* session, const char* category, int32_t local_index) {
     if (!session || !category) return -1;
-    auto service = make_service(session);
-    std::string error;
-    th::TeleportPoint removed;
-    if (!service.delete_in_category(category, local_index, removed, error)) {
-        session->last_error = error;
-        return -1;
-    }
-    session->favourites = service.all_points();
-    session->last_error.clear();
-    return 0;
+    return guarded_call(session, "delete favourite", [&]() -> int32_t {
+        auto service = make_service(session);
+        std::string error;
+        th::TeleportPoint removed;
+        if (!service.delete_in_category(category, local_index, removed, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites = service.all_points();
+        session->last_error.clear();
+        return 0;
+    });
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_save(th_session* session,
                                                                     const char* path) {
     if (!session || !path) return -1;
-    th::FavlistRepository repo(path);
-    std::string error;
-    int written = repo.save(session->favourites, error);
-    if (written < 0) {
-        session->last_error = error;
+    return guarded_call(session, "save favourites", [&]() -> int32_t {
+        th::FavlistRepository repo(path);
+        std::string error;
+        int written = repo.save(session->favourites, error);
+        if (written < 0) {
+            session->last_error = error;
+            return -1;
+        }
+        session->last_error.clear();
+        return written;
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_export(th_session* session,
+                                                                       const char* path) {
+    if (!session || !path) return -1;
+    return guarded_call(session, "export favourites", [&]() -> int32_t {
+        auto service = make_service(session);
+        th::FavouritesPorter porter(service);
+        std::string error;
+        int written = porter.export_to(path, error);
+        if (written < 0) {
+            session->last_error = error;
+            return -1;
+        }
+        session->last_error.clear();
+        return written;
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_import_replace(th_session* session, const char* path) {
+    if (!session || !path) return -1;
+    return guarded_call(session, "import replace", [&]() -> int32_t {
+        auto service = make_service(session);
+        th::FavouritesPorter porter(service);
+        std::string error;
+        int loaded = porter.import_replace(path, error);
+        if (loaded < 0) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites = service.all_points();
+        session->last_error.clear();
+        return loaded;
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_import_merge(th_session* session, const char* path, int32_t* added,
+    int32_t* skipped_duplicates) {
+    if (!session || !path) return -1;
+    return guarded_call(session, "import merge", [&]() -> int32_t {
+        auto service = make_service(session);
+        th::FavouritesPorter porter(service);
+        th::MergeReport report;
+        std::string error;
+        if (!porter.import_merge(path, report, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites = service.all_points();
+        if (added) *added = report.added;
+        if (skipped_duplicates) *skipped_duplicates = report.skipped_duplicates;
+        session->last_error.clear();
+        return 0;
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_update_current(
+    th_session* session, const char* lua_path, const char* description,
+    int32_t description_occurrence) {
+    if (!session || !lua_path || !description || description_occurrence < 0 ||
+        !session->teleport) return -1;
+    return guarded_call(session, "Teleport.lua update", [&]() -> int32_t {
+        th::Position position;
+        if (!session->teleport->read_position(position)) {
+            session->last_error = session->teleport->last_error();
+            return -1;
+        }
+        std::string error;
+        if (!th::TeleportLuaRepository(lua_path).update_entry(
+                description, static_cast<size_t>(description_occurrence), position, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->last_error.clear();
+        return 0;
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_insert_current_after(
+    th_session* session, const char* lua_path, const char* category,
+    int32_t local_index, const char* new_description) {
+    if (!session || !lua_path || !category || !new_description || !session->teleport)
         return -1;
-    }
-    session->last_error.clear();
-    return written;
+    return guarded_call(session, "Teleport.lua + table insert", [&]() -> int32_t {
+        auto service = make_service(session);
+        int global_index = -1;
+        size_t occurrence = 0;
+        std::string error;
+        if (!service.resolve_global_index(category, local_index, global_index, error) ||
+            !service.resolve_description_occurrence(category, local_index, occurrence, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        const th::TeleportPoint anchor = service.all_points()[static_cast<size_t>(global_index)];
+
+        uint32_t map_before = 0, map_after = 0;
+        th::Position position;
+        if (!session->teleport->read_map_id(map_before) ||
+            !session->teleport->read_position(position) ||
+            !session->teleport->read_map_id(map_after)) {
+            session->last_error = session->teleport->last_error();
+            return -1;
+        }
+        if (map_before != map_after) {
+            session->last_error = "map changed while reading position; try again";
+            return -1;
+        }
+
+        th::TeleportPoint point{new_description, position};
+        if (!service.append_in_category(category, local_index, point, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        // Allocate the final session list before writing Lua. The subsequent
+        // swap is noexcept, so an allocation failure cannot leave Lua updated
+        // while the in-memory table remains stale.
+        std::vector<th::TeleportPoint> committed = service.all_points();
+        if (!th::TeleportLuaRepository(lua_path).insert_entry_after(
+                anchor.description, occurrence, point, map_before, error)) {
+            session->last_error = error;
+            return -1;
+        }
+        session->favourites.swap(committed);
+        session->last_error.clear();
+        return 0;
+    });
 }

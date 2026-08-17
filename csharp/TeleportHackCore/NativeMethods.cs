@@ -170,6 +170,30 @@ internal static class NativeMethods
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int th_favourites_save(IntPtr session, byte[] path);
 
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_export(IntPtr session, byte[] path);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_import_replace(IntPtr session, byte[] path);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_import_merge(IntPtr session, byte[] path,
+                                                         out int added,
+                                                         out int skippedDuplicates);
+
+    // ---- Teleport.lua high-level operations ----------------------------
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_teleport_lua_update_current(IntPtr session, byte[] luaPath,
+                                                             byte[] description,
+                                                             int descriptionOccurrence);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_teleport_lua_insert_current_after(IntPtr session, byte[] luaPath,
+                                                                  byte[] category,
+                                                                  int localIndex,
+                                                                  byte[] newDescription);
+
     // ---- helpers ---------------------------------------------------------
 
     /// <summary>

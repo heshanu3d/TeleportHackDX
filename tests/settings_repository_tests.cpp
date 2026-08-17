@@ -45,6 +45,12 @@ int main() {
     settings.wow_exe_path = "C:\\Games\\WoW 3.3.5\\WoW.exe";
     settings.desktop_always_on_top = true;
     settings.movement_speed_value = 25.0;
+    settings.winforms_window_x = -1200;
+    settings.winforms_window_saved = true;
+    settings.winforms_always_on_top = true;
+    settings.wpf_window_x = -900.5;
+    settings.wpf_window_saved = true;
+    settings.wpf_always_on_top = true;
     settings.dll_imgui_layout = dll_layout;
     settings.desktop_imgui_layout = desktop_layout;
 
@@ -62,6 +68,12 @@ int main() {
           "desktop always-on-top preference survives save and reload");
     check(loaded.movement_speed_value == 25.0,
           "movement speed value survives save and reload");
+    check(loaded.winforms_window_saved && loaded.winforms_window_x == -1200 &&
+              loaded.winforms_always_on_top,
+          "WinForms window state survives native save and reload");
+    check(loaded.wpf_window_saved && loaded.wpf_window_x == -900.5 &&
+              loaded.wpf_always_on_top,
+          "WPF window state survives native save and reload");
     check(loaded.dll_imgui_layout != loaded.desktop_imgui_layout,
           "DLL and desktop layouts remain independent");
 

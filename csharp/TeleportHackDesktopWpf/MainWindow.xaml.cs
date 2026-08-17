@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using TeleportHackCore;
@@ -18,6 +19,8 @@ namespace TeleportHackDesktopWpf;
 public partial class MainWindow : Window
 {
     private readonly TeleportSession _session = new();
+    private readonly SettingsDocument _settings = SettingsDocument.LoadFromApplicationDirectory();
+    private readonly HotkeyRegistry _hotkeys = new();
     private readonly DispatcherTimer _moveSpeedTimer =
         new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
     private bool _moveSpeedEnabled;
@@ -25,6 +28,9 @@ public partial class MainWindow : Window
     private IReadOnlyList<FavouritePoint> _allFavourites = Array.Empty<FavouritePoint>();
     private readonly ObservableCollection<FavouriteRow> _rows = new();
     private string? _favlistPath;
+    private string? _teleportLuaPath;
+    private string? _hotkeyPath;
+    private HwndSource? _windowSource;
 
     public MainWindow()
     {
@@ -33,16 +39,20 @@ public partial class MainWindow : Window
 
         _moveSpeedTimer.Tick += MoveSpeedTimer_Tick;
         Closing += (_, _) => Shutdown();
+        SourceInitialized += MainWindow_SourceInitialized;
 
         try
         {
             foreach (var version in TeleportSession.Versions()) VersionCombo.Items.Add(version);
-            VersionCombo.SelectedItem = _session.Version;
+            string configuredVersion = _settings.GetString("default_version", _session.Version);
+            VersionCombo.SelectedItem = VersionCombo.Items.Contains(configuredVersion)
+                ? configuredVersion
+                : _session.Version;
         }
         catch (Exception ex) { Log("[error] enumerating versions: " + ex.Message); }
 
         RefreshProcesses();
-        TryLoadDefaultFavourites();
+        ApplySettingsAndLoadData();
     }
 
     // -------------------------------------------------------------------------
@@ -125,6 +135,11 @@ public partial class MainWindow : Window
     private void AppendButton_Click(object sender, RoutedEventArgs e) => AppendToCategory();
     private void SaveButton_Click(object sender, RoutedEventArgs e) => SaveFavourites();
     private void ReloadButton_Click(object sender, RoutedEventArgs e) => ReloadFavourites();
+    private void ReadToLuaButton_Click(object sender, RoutedEventArgs e) => UpdateTeleportLua();
+    private void InsertTableLuaButton_Click(object sender, RoutedEventArgs e) => InsertTableAndLua();
+    private void ImportMergeButton_Click(object sender, RoutedEventArgs e) => ImportFavourites(true);
+    private void ImportReplaceButton_Click(object sender, RoutedEventArgs e) => ImportFavourites(false);
+    private void ExportButton_Click(object sender, RoutedEventArgs e) => ExportFavourites();
 
     private void AntiJumpButton_Click(object sender, RoutedEventArgs e)
         => LogToggle("AntiJump", _session.ToggleAntiJump);
@@ -156,6 +171,30 @@ public partial class MainWindow : Window
         else EnableMovementSpeed();
     }
 
+    private void MainWindow_SourceInitialized(object? sender, EventArgs e)
+    {
+        _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
+        _windowSource?.AddHook(WindowMessageHook);
+        RegisterHotkeys();
+    }
+
+    private IntPtr WindowMessageHook(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam,
+                                      ref bool handled)
+    {
+        if (msg == HotkeyRegistry.WmHotkey &&
+            _hotkeys.TryResolve(wParam.ToInt32(), out FavouritePoint point))
+        {
+            try
+            {
+                _session.Teleport(point.X, point.Y, point.Z, point.Orientation);
+                Log($"hotkey teleported to '{point.Description}'");
+            }
+            catch (Exception ex) { Log("[error] hotkey teleport: " + ex.Message); }
+            handled = true;
+        }
+        return IntPtr.Zero;
+    }
+
     // -------------------------------------------------------------------------
     // Core actions
     // -------------------------------------------------------------------------
@@ -172,24 +211,105 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("[error] list processes: " + ex.Message); }
     }
 
-    private void TryLoadDefaultFavourites()
+    private void ApplySettingsAndLoadData()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "favlist.fav");
-        if (File.Exists(path)) LoadFavouritesFromPath(path);
+        AlwaysOnTopCheck.IsChecked = _settings.GetBool("wpf_always_on_top", false);
+        GlobalSpeedInput.Text = _settings.GetDouble("speed_value", 7.0)
+            .ToString(CultureInfo.InvariantCulture);
+        MoveSpeedInput.Text = _settings.GetDouble("movement_speed_value", 7.0)
+            .ToString(CultureInfo.InvariantCulture);
+
+        if (_settings.GetBool("wpf_window_saved", false))
+        {
+            double width = _settings.GetDouble("wpf_window_width", Width);
+            double height = _settings.GetDouble("wpf_window_height", Height);
+            double left = _settings.GetDouble("wpf_window_x", Left);
+            double top = _settings.GetDouble("wpf_window_y", Top);
+            if (double.IsFinite(width) && double.IsFinite(height) &&
+                double.IsFinite(left) && double.IsFinite(top) &&
+                width >= MinWidth && height >= MinHeight)
+            {
+                var candidate = new Rect(left, top, width, height);
+                var virtualDesktop = new Rect(SystemParameters.VirtualScreenLeft,
+                                              SystemParameters.VirtualScreenTop,
+                                              SystemParameters.VirtualScreenWidth,
+                                              SystemParameters.VirtualScreenHeight);
+                if (candidate.IntersectsWith(virtualDesktop))
+                {
+                    WindowStartupLocation = WindowStartupLocation.Manual;
+                    Left = left;
+                    Top = top;
+                    Width = width;
+                    Height = height;
+                }
+            }
+        }
+
+        string hotkeyConfigured = _settings.GetString("hotkey_path", "hotkey.txt");
+        _hotkeyPath = _settings.ResolvePath(hotkeyConfigured, "hotkey.txt");
+        string luaConfigured = _settings.GetString("teleport_lua_path");
+        _teleportLuaPath = !string.IsNullOrWhiteSpace(luaConfigured) &&
+                           _settings.TryResolvePath(luaConfigured, out string luaPath)
+            ? luaPath
+            : null;
+
+        string favConfigured = _settings.GetString("favlist_path", "favlist.fav");
+        string favPath = _settings.ResolvePath(favConfigured, "favlist.fav");
+        string preferredCategory = _settings.GetString("last_category", TeleportSession.AllCategory);
+        if (File.Exists(favPath)) LoadFavouritesFromPath(favPath, preferredCategory);
     }
 
-    private void LoadFavouritesFromPath(string path)
+    private void LoadFavouritesFromPath(string path, string? preferredCategory = null)
     {
         try
         {
             _session.LoadFavourites(path);
             _favlistPath = path;
-            RefreshCategoryCombo();
+            RefreshCategoryCombo(preferredCategory);
             _allFavourites = _session.AllFavourites();
             RefreshFavouritesView();
+            RegisterHotkeys();
             Log($"loaded {_allFavourites.Count} favourites from {path}");
         }
         catch (Exception ex) { Log("[error] load favourites: " + ex.Message); }
+    }
+
+    private void RegisterHotkeys()
+    {
+        if (_windowSource is null || _hotkeyPath is null) return;
+        try
+        {
+            int count = _hotkeys.Apply(_windowSource.Handle, _hotkeyPath, _allFavourites,
+                warning => Log("[warn] " + warning));
+            Log($"registered {count} hotkeys");
+        }
+        catch (Exception ex) { Log("[error] hotkey config: " + ex.Message); }
+    }
+
+    private void SaveManagedSettings()
+    {
+        try
+        {
+            Rect bounds = WindowState == System.Windows.WindowState.Normal
+                ? new Rect(Left, Top, ActualWidth, ActualHeight)
+                : RestoreBounds;
+            _settings.Set("wpf_window_x", bounds.Left);
+            _settings.Set("wpf_window_y", bounds.Top);
+            _settings.Set("wpf_window_width", bounds.Width);
+            _settings.Set("wpf_window_height", bounds.Height);
+            _settings.Set("wpf_window_saved", true);
+            _settings.Set("wpf_always_on_top", AlwaysOnTopCheck.IsChecked == true);
+            _settings.Set("default_version", VersionCombo.SelectedItem as string ?? "3.3.5");
+            _settings.Set("last_category",
+                CategoryCombo.SelectedItem as string ?? TeleportSession.AllCategory);
+            if (TryParseSpeed(GlobalSpeedInput.Text, out double global))
+                _settings.Set("speed_value", global);
+            if (TryParseSpeed(MoveSpeedInput.Text, out double movement))
+                _settings.Set("movement_speed_value", movement);
+            if (_favlistPath is not null) _settings.Set("favlist_path", _favlistPath);
+            _settings.Save();
+        }
+        catch (Exception ex) { Log("[error] save settings: " + ex.Message); }
     }
 
     private void ReloadFavourites()
@@ -385,6 +505,47 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("[error] 删除: " + ex.Message); }
     }
 
+    private void UpdateTeleportLua()
+    {
+        if (_teleportLuaPath is null)
+        {
+            Log("[warn] Teleport.lua path not configured in settings.json");
+            return;
+        }
+        if (SelectedFavourite() is not FavouritePoint point)
+        {
+            Log("[warn] pick a row first");
+            return;
+        }
+        int occurrence = _allFavourites.Count(candidate =>
+            candidate.Index < point.Index && candidate.Description == point.Description);
+        try
+        {
+            _session.UpdateTeleportLuaFromCurrent(_teleportLuaPath, point.Description, occurrence);
+            Log($"Teleport.lua: updated '{point.Description}'");
+        }
+        catch (Exception ex) { Log("[error] 读取到炉石: " + ex.Message); }
+    }
+
+    private void InsertTableAndLua()
+    {
+        if (_teleportLuaPath is null)
+        {
+            Log("[warn] Teleport.lua path not configured in settings.json");
+            return;
+        }
+        if (!RequireSelectedIndex(out int index) || !RequireDescription(out string description))
+            return;
+        try
+        {
+            _session.InsertCurrentIntoTableAndLua(_teleportLuaPath, CurrentCategoryForCrud(),
+                                                   index, description);
+            AfterFavlistMutation($"appended table + Teleport.lua: '{description}'",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 插后 表&炉石: " + ex.Message); }
+    }
+
     private void AppendToCategory()
     {
         var category = CurrentCategoryForCrud();
@@ -417,7 +578,55 @@ public partial class MainWindow : Window
         _allFavourites = _session.AllFavourites();
         RefreshCategoryCombo(previousCategory);
         RefreshFavouritesView();
+        RegisterHotkeys();
         Log(message);
+    }
+
+    private void ImportFavourites(bool merge)
+    {
+        var dialog = new OpenFileDialog
+        {
+            Filter = "Favlist (*.fav)|*.fav|All files (*.*)|*.*",
+            InitialDirectory = AppContext.BaseDirectory,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            string previous = CurrentCategoryForCrud();
+            if (merge)
+            {
+                var report = _session.ImportMerge(dialog.FileName);
+                Log($"merged {report.Added} new, skipped {report.SkippedDuplicates} duplicates");
+            }
+            else
+            {
+                int loaded = _session.ImportReplace(dialog.FileName);
+                Log($"imported {loaded} points (replaced)");
+            }
+            _allFavourites = _session.AllFavourites();
+            RefreshCategoryCombo(previous);
+            RefreshFavouritesView();
+            RegisterHotkeys();
+        }
+        catch (Exception ex) { Log("[error] import: " + ex.Message); }
+    }
+
+    private void ExportFavourites()
+    {
+        var dialog = new SaveFileDialog
+        {
+            Filter = "Favlist (*.fav)|*.fav|All files (*.*)|*.*",
+            InitialDirectory = AppContext.BaseDirectory,
+            FileName = "favlist-export.fav",
+            OverwritePrompt = true,
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        try
+        {
+            int written = _session.ExportFavourites(dialog.FileName);
+            Log($"exported {written} favourites to {dialog.FileName}");
+        }
+        catch (Exception ex) { Log("[error] export: " + ex.Message); }
     }
 
     private void LogToggle(string name, Func<bool> action)
@@ -479,6 +688,13 @@ public partial class MainWindow : Window
             catch { /* best effort on teardown */ }
         }
         _moveSpeedTimer.Stop();
+        _hotkeys.Dispose();
+        if (_windowSource is not null)
+        {
+            _windowSource.RemoveHook(WindowMessageHook);
+            _windowSource = null;
+        }
+        SaveManagedSettings();
         _session.Dispose();
     }
 

@@ -253,6 +253,41 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_delete_in_category(th_session*
 // written on success, or -1 on failure.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_save(th_session* session, const char* path);
 
+// Exports the current list to a separate favlist file. Returns the number
+// written or -1 on failure.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_export(th_session* session,
+                                                          const char* path);
+
+// Replaces the in-memory list with `path`. Returns the number loaded or -1.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_import_replace(th_session* session,
+                                                                  const char* path);
+
+// Merges non-duplicate entries from `path`. On success writes report counts
+// to optional out-pointers and returns 0; returns -1 on read/parse failure.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_import_merge(th_session* session,
+                                                                const char* path,
+                                                                int32_t* added,
+                                                                int32_t* skipped_duplicates);
+
+// -------------------------------------------------------------------------
+// Teleport.lua high-level operations
+// -------------------------------------------------------------------------
+
+// Reads the current player position and updates the selected duplicate-name
+// occurrence inside Teleport.lua's live FAV table. `description_occurrence`
+// is zero-based across equal descriptions in favlist order.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_update_current(
+    th_session* session, const char* lua_path, const char* description,
+    int32_t description_occurrence);
+
+// Equivalent to the ImGui "插后 表&炉石" command: dynamically resolves the
+// selected anchor by description occurrence, reads a stable mapId + current
+// position, inserts the new Lua row, then commits the same insertion to the
+// in-memory favourites list. `local_index` is within `category`.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_insert_current_after(
+    th_session* session, const char* lua_path, const char* category,
+    int32_t local_index, const char* new_description);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif

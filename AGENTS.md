@@ -135,6 +135,11 @@ CMake：`th_business` STATIC 库包含 attach-mode 的 domain/services/repositor
 所以 C# 层不会改变原注入 DLL 的运行时依赖。WPF/WinForms 均为 .NET 8 framework-dependent
 x86 EXE，通过共享 `TeleportHackCore.dll` P/Invoke C ABI DLL。
 
+C# 两套 UI 已接入进程 Attach、版本、分类/搜索、收藏点 CRUD/保存/重载/导入导出、
+Teleport.lua 动态更新与组合插入、Win32 `RegisterHotKey`、四个补丁、全局/移动速度、
+置顶和 settings.json 持久化。Managed settings 使用 JsonObject 保留未知 native 字段；native
+Settings 结构也显式保留 `winforms_*` / `wpf_*` 窗口字段，避免不同 UI 互相删除状态。
+
 ## 已经落实的一些不明显的设计要点
 
 - **非阻塞式分步传送。** 原始 AutoIt/Python 版本每一步之间的 `Sleep()`

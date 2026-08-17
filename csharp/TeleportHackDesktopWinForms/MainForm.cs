@@ -15,6 +15,8 @@ namespace TeleportHackDesktopWinForms;
 internal sealed class MainForm : Form
 {
     private readonly TeleportSession _session = new();
+    private readonly SettingsDocument _settings = SettingsDocument.LoadFromApplicationDirectory();
+    private readonly HotkeyRegistry _hotkeys = new();
 
     // Movement-speed hack has to be re-written every frame because the game
     // keeps stomping our value; mirror the ImGui build's 1 Hz tick.
@@ -27,6 +29,8 @@ internal sealed class MainForm : Form
     // Path of the currently loaded favlist so 保存 writes back to the same
     // file without prompting.
     private string? _favlistPath;
+    private string? _teleportLuaPath;
+    private string? _hotkeyPath;
 
     // --- controls (fields so timer / event handlers can reach them
     // without designer machinery) ---
@@ -45,9 +49,14 @@ internal sealed class MainForm : Form
     private Button _insertAfterButton = null!;
     private Button _editButton = null!;
     private Button _deleteButton = null!;
+    private Button _readToLuaButton = null!;
+    private Button _insertTableLuaButton = null!;
     private Button _appendButton = null!;
     private Button _saveButton = null!;
     private Button _reloadButton = null!;
+    private Button _importMergeButton = null!;
+    private Button _importReplaceButton = null!;
+    private Button _exportButton = null!;
     private Button _teleportButton = null!;
     private Button _antiJumpButton = null!;
     private Button _autoLootButton = null!;
@@ -69,15 +78,19 @@ internal sealed class MainForm : Form
 
         _moveSpeedTimer.Tick += MoveSpeedTimer_Tick;
         FormClosing += MainForm_FormClosing;
+        Shown += (_, _) => RegisterHotkeys();
 
         try
         {
             _versionCombo.Items.AddRange(TeleportSession.Versions().Cast<object>().ToArray());
-            _versionCombo.SelectedItem = _session.Version;
+            string configuredVersion = _settings.GetString("default_version", _session.Version);
+            _versionCombo.SelectedItem = _versionCombo.Items.Contains(configuredVersion)
+                ? configuredVersion
+                : _session.Version;
         }
         catch (Exception ex) { Log("[error] enumerating versions: " + ex.Message); }
         RefreshProcesses();
-        TryLoadDefaultFavourites();
+        ApplySettingsAndLoadData();
     }
 
     // -------------------------------------------------------------------------
@@ -90,7 +103,7 @@ internal sealed class MainForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 10,
+            RowCount = 11,
             Padding = new Padding(8),
         };
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // process
@@ -102,6 +115,7 @@ internal sealed class MainForm : Form
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // teleport
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // toggles
         root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // speed
+        root.RowStyles.Add(new RowStyle(SizeType.AutoSize));      // import/export
         root.RowStyles.Add(new RowStyle(SizeType.Percent, 40));   // log
         root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
 
@@ -114,7 +128,8 @@ internal sealed class MainForm : Form
         root.Controls.Add(BuildTeleportRow(), 0, 6);
         root.Controls.Add(BuildTogglesRow(), 0, 7);
         root.Controls.Add(BuildSpeedRow(), 0, 8);
-        root.Controls.Add(BuildLog(), 0, 9);
+        root.Controls.Add(BuildImportExportRow(), 0, 9);
+        root.Controls.Add(BuildLog(), 0, 10);
         Controls.Add(root);
     }
 
@@ -203,6 +218,8 @@ internal sealed class MainForm : Form
         _insertAfterButton = MakeButton("插后", (_, _) => InsertAfterSelected());
         _editButton = MakeButton("编辑", (_, _) => EditSelected());
         _deleteButton = MakeButton("删除", (_, _) => DeleteSelected());
+        _readToLuaButton = MakeButton("读取到炉石", (_, _) => UpdateTeleportLua());
+        _insertTableLuaButton = MakeButton("插后 表&炉石", (_, _) => InsertTableAndLua());
         _appendButton = MakeButton("追加", (_, _) => AppendToCategory());
         _saveButton = MakeButton("保存", (_, _) => SaveFavourites());
         _reloadButton = MakeButton("重载", (_, _) => ReloadFavourites());
@@ -210,9 +227,23 @@ internal sealed class MainForm : Form
         panel.Controls.Add(_insertAfterButton);
         panel.Controls.Add(_editButton);
         panel.Controls.Add(_deleteButton);
+        panel.Controls.Add(_readToLuaButton);
+        panel.Controls.Add(_insertTableLuaButton);
         panel.Controls.Add(_appendButton);
         panel.Controls.Add(_saveButton);
         panel.Controls.Add(_reloadButton);
+        return panel;
+    }
+
+    private Control BuildImportExportRow()
+    {
+        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
+        _importMergeButton = MakeButton("Import Merge...", (_, _) => ImportFavourites(true));
+        _importReplaceButton = MakeButton("Import Replace...", (_, _) => ImportFavourites(false));
+        _exportButton = MakeButton("Export...", (_, _) => ExportFavourites());
+        panel.Controls.Add(_importMergeButton);
+        panel.Controls.Add(_importReplaceButton);
+        panel.Controls.Add(_exportButton);
         return panel;
     }
 
@@ -296,7 +327,25 @@ internal sealed class MainForm : Form
             catch { /* best-effort during teardown */ }
         }
         _moveSpeedTimer.Stop();
+        _hotkeys.Dispose();
+        SaveManagedSettings();
         _session.Dispose();
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == HotkeyRegistry.WmHotkey &&
+            _hotkeys.TryResolve(m.WParam.ToInt32(), out FavouritePoint point))
+        {
+            try
+            {
+                _session.Teleport(point.X, point.Y, point.Z, point.Orientation);
+                Log($"hotkey teleported to '{point.Description}'");
+            }
+            catch (Exception ex) { Log("[error] hotkey teleport: " + ex.Message); }
+            return;
+        }
+        base.WndProc(ref m);
     }
 
     private void VersionCombo_SelectedIndexChanged(object? sender, EventArgs e)
@@ -353,11 +402,41 @@ internal sealed class MainForm : Form
         }
     }
 
-    private void TryLoadDefaultFavourites()
+    private void ApplySettingsAndLoadData()
     {
-        var path = Path.Combine(AppContext.BaseDirectory, "favlist.fav");
-        if (!File.Exists(path)) return;
-        LoadFavouritesFromPath(path);
+        _alwaysOnTopCheck.Checked = _settings.GetBool("winforms_always_on_top", false);
+        _globalSpeedInput.Value = ClampDecimal(_settings.GetDouble("speed_value", 7.0),
+                                                _globalSpeedInput);
+        _moveSpeedInput.Value = ClampDecimal(_settings.GetDouble("movement_speed_value", 7.0),
+                                              _moveSpeedInput);
+
+        if (_settings.GetBool("winforms_window_saved", false))
+        {
+            int width = _settings.GetInt("winforms_window_width", Width);
+            int height = _settings.GetInt("winforms_window_height", Height);
+            int x = _settings.GetInt("winforms_window_x", Left);
+            int y = _settings.GetInt("winforms_window_y", Top);
+            var candidate = new Rectangle(x, y, width, height);
+            if (width >= MinimumSize.Width && height >= MinimumSize.Height &&
+                Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(candidate)))
+            {
+                StartPosition = FormStartPosition.Manual;
+                Bounds = candidate;
+            }
+        }
+
+        string favConfigured = _settings.GetString("favlist_path", "favlist.fav");
+        string favPath = _settings.ResolvePath(favConfigured, "favlist.fav");
+        string preferredCategory = _settings.GetString("last_category", TeleportSession.AllCategory);
+        if (File.Exists(favPath)) LoadFavouritesFromPath(favPath, preferredCategory);
+
+        string hotkeyConfigured = _settings.GetString("hotkey_path", "hotkey.txt");
+        _hotkeyPath = _settings.ResolvePath(hotkeyConfigured, "hotkey.txt");
+        string luaConfigured = _settings.GetString("teleport_lua_path");
+        _teleportLuaPath = !string.IsNullOrWhiteSpace(luaConfigured) &&
+                           _settings.TryResolvePath(luaConfigured, out string luaPath)
+            ? luaPath
+            : null;
     }
 
     private void LoadFavouritesInteractive()
@@ -371,18 +450,61 @@ internal sealed class MainForm : Form
         LoadFavouritesFromPath(dialog.FileName);
     }
 
-    private void LoadFavouritesFromPath(string path)
+    private void LoadFavouritesFromPath(string path, string? preferredCategory = null)
     {
         try
         {
             _session.LoadFavourites(path);
             _favlistPath = path;
-            RefreshCategoryCombo();
+            RefreshCategoryCombo(preferredCategory);
             _allFavourites = _session.AllFavourites();
             RefreshFavouritesView();
+            RegisterHotkeys();
             Log($"loaded {_allFavourites.Count} favourites from {path}");
         }
         catch (Exception ex) { Log("[error] load favourites: " + ex.Message); }
+    }
+
+    private static decimal ClampDecimal(double value, NumericUpDown control)
+    {
+        decimal converted;
+        try { converted = (decimal)value; }
+        catch { converted = control.Minimum; }
+        return Math.Min(control.Maximum, Math.Max(control.Minimum, converted));
+    }
+
+    private void SaveManagedSettings()
+    {
+        try
+        {
+            Rectangle bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+            _settings.Set("winforms_window_x", bounds.X);
+            _settings.Set("winforms_window_y", bounds.Y);
+            _settings.Set("winforms_window_width", bounds.Width);
+            _settings.Set("winforms_window_height", bounds.Height);
+            _settings.Set("winforms_window_saved", true);
+            _settings.Set("winforms_always_on_top", _alwaysOnTopCheck.Checked);
+            _settings.Set("default_version", _versionCombo.SelectedItem as string ?? "3.3.5");
+            _settings.Set("last_category",
+                _categoryCombo.SelectedItem as string ?? TeleportSession.AllCategory);
+            _settings.Set("speed_value", (double)_globalSpeedInput.Value);
+            _settings.Set("movement_speed_value", (double)_moveSpeedInput.Value);
+            if (_favlistPath is not null) _settings.Set("favlist_path", _favlistPath);
+            _settings.Save();
+        }
+        catch (Exception ex) { Log("[error] save settings: " + ex.Message); }
+    }
+
+    private void RegisterHotkeys()
+    {
+        if (!IsHandleCreated || _hotkeyPath is null) return;
+        try
+        {
+            int count = _hotkeys.Apply(Handle, _hotkeyPath, _allFavourites,
+                warning => Log("[warn] " + warning));
+            Log($"registered {count} hotkeys");
+        }
+        catch (Exception ex) { Log("[error] hotkey config: " + ex.Message); }
     }
 
     private void ReloadFavourites()
@@ -594,6 +716,47 @@ internal sealed class MainForm : Form
         catch (Exception ex) { Log("[error] 删除: " + ex.Message); }
     }
 
+    private void UpdateTeleportLua()
+    {
+        if (_teleportLuaPath is null)
+        {
+            Log("[warn] Teleport.lua path not configured in settings.json");
+            return;
+        }
+        if (SelectedFavourite() is not FavouritePoint point)
+        {
+            Log("[warn] pick a row first");
+            return;
+        }
+        int occurrence = _allFavourites.Count(candidate =>
+            candidate.Index < point.Index && candidate.Description == point.Description);
+        try
+        {
+            _session.UpdateTeleportLuaFromCurrent(_teleportLuaPath, point.Description, occurrence);
+            Log($"Teleport.lua: updated '{point.Description}'");
+        }
+        catch (Exception ex) { Log("[error] 读取到炉石: " + ex.Message); }
+    }
+
+    private void InsertTableAndLua()
+    {
+        if (_teleportLuaPath is null)
+        {
+            Log("[warn] Teleport.lua path not configured in settings.json");
+            return;
+        }
+        if (!RequireSelectedIndex(out int index) || !RequireDescription(out string description))
+            return;
+        try
+        {
+            _session.InsertCurrentIntoTableAndLua(_teleportLuaPath, CurrentCategoryForCrud(),
+                                                   index, description);
+            AfterFavlistMutation($"appended table + Teleport.lua: '{description}'",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 插后 表&炉石: " + ex.Message); }
+    }
+
     private void AppendToCategory()
     {
         // Append == insert after the last row of the current category. If the
@@ -633,7 +796,55 @@ internal sealed class MainForm : Form
         _allFavourites = _session.AllFavourites();
         RefreshCategoryCombo(previousCategory);
         RefreshFavouritesView();
+        RegisterHotkeys();
         Log(message);
+    }
+
+    private void ImportFavourites(bool merge)
+    {
+        using var dialog = new OpenFileDialog
+        {
+            Filter = "Favlist (*.fav)|*.fav|All files (*.*)|*.*",
+            InitialDirectory = AppContext.BaseDirectory,
+        };
+        if (dialog.ShowDialog() != DialogResult.OK) return;
+        try
+        {
+            string previous = CurrentCategoryForCrud();
+            if (merge)
+            {
+                var report = _session.ImportMerge(dialog.FileName);
+                Log($"merged {report.Added} new, skipped {report.SkippedDuplicates} duplicates");
+            }
+            else
+            {
+                int loaded = _session.ImportReplace(dialog.FileName);
+                Log($"imported {loaded} points (replaced)");
+            }
+            _allFavourites = _session.AllFavourites();
+            RefreshCategoryCombo(previous);
+            RefreshFavouritesView();
+            RegisterHotkeys();
+        }
+        catch (Exception ex) { Log("[error] import: " + ex.Message); }
+    }
+
+    private void ExportFavourites()
+    {
+        using var dialog = new SaveFileDialog
+        {
+            Filter = "Favlist (*.fav)|*.fav|All files (*.*)|*.*",
+            InitialDirectory = AppContext.BaseDirectory,
+            FileName = "favlist-export.fav",
+            OverwritePrompt = true,
+        };
+        if (dialog.ShowDialog() != DialogResult.OK) return;
+        try
+        {
+            int written = _session.ExportFavourites(dialog.FileName);
+            Log($"exported {written} favourites to {dialog.FileName}");
+        }
+        catch (Exception ex) { Log("[error] export: " + ex.Message); }
     }
 
     // -------------------------------------------------------------------------

@@ -352,4 +352,50 @@ public sealed class TeleportSession : IDisposable
             throw new TeleportHackException("save favourites", LastError());
         return written;
     }
+
+    public int ExportFavourites(string path)
+    {
+        RequireHandle();
+        int written = th_favourites_export(_handle, ToUtf8(path));
+        if (written < 0)
+            throw new TeleportHackException("export favourites", LastError());
+        return written;
+    }
+
+    public int ImportReplace(string path)
+    {
+        RequireHandle();
+        int loaded = th_favourites_import_replace(_handle, ToUtf8(path));
+        if (loaded < 0)
+            throw new TeleportHackException("import replace", LastError());
+        return loaded;
+    }
+
+    public (int Added, int SkippedDuplicates) ImportMerge(string path)
+    {
+        RequireHandle();
+        CheckResult(th_favourites_import_merge(_handle, ToUtf8(path), out int added,
+                                                out int skipped), "import merge");
+        return (added, skipped);
+    }
+
+    public void UpdateTeleportLuaFromCurrent(string luaPath, string description,
+                                               int descriptionOccurrence)
+    {
+        RequireHandle();
+        CheckResult(th_teleport_lua_update_current(_handle, ToUtf8(luaPath),
+                                                    ToUtf8(description),
+                                                    descriptionOccurrence),
+                    "Teleport.lua update");
+    }
+
+    public void InsertCurrentIntoTableAndLua(string luaPath, string category, int localIndex,
+                                              string newDescription)
+    {
+        RequireHandle();
+        CheckResult(th_teleport_lua_insert_current_after(_handle, ToUtf8(luaPath),
+                                                          ToUtf8(category), localIndex,
+                                                          ToUtf8(newDescription)),
+                    "Teleport.lua + table insert");
+    }
 }

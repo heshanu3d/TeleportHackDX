@@ -156,6 +156,18 @@ Settings SettingsRepository::load() const {
     get_int("window_y", s.window_y);
     get_int("window_width", s.window_width);
     get_int("window_height", s.window_height);
+    get_int("winforms_window_x", s.winforms_window_x);
+    get_int("winforms_window_y", s.winforms_window_y);
+    get_int("winforms_window_width", s.winforms_window_width);
+    get_int("winforms_window_height", s.winforms_window_height);
+    get_bool("winforms_window_saved", s.winforms_window_saved);
+    get_bool("winforms_always_on_top", s.winforms_always_on_top);
+    get_double("wpf_window_x", s.wpf_window_x);
+    get_double("wpf_window_y", s.wpf_window_y);
+    get_double("wpf_window_width", s.wpf_window_width);
+    get_double("wpf_window_height", s.wpf_window_height);
+    get_bool("wpf_window_saved", s.wpf_window_saved);
+    get_bool("wpf_always_on_top", s.wpf_always_on_top);
     return s;
 }
 
@@ -189,7 +201,23 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"window_x\": " << settings.window_x << ",\n";
     fh << "  \"window_y\": " << settings.window_y << ",\n";
     fh << "  \"window_width\": " << settings.window_width << ",\n";
-    fh << "  \"window_height\": " << settings.window_height << "\n";
+    fh << "  \"window_height\": " << settings.window_height << ",\n";
+    fh << "  \"winforms_window_x\": " << settings.winforms_window_x << ",\n";
+    fh << "  \"winforms_window_y\": " << settings.winforms_window_y << ",\n";
+    fh << "  \"winforms_window_width\": " << settings.winforms_window_width << ",\n";
+    fh << "  \"winforms_window_height\": " << settings.winforms_window_height << ",\n";
+    fh << "  \"winforms_window_saved\": "
+       << (settings.winforms_window_saved ? "true" : "false") << ",\n";
+    fh << "  \"winforms_always_on_top\": "
+       << (settings.winforms_always_on_top ? "true" : "false") << ",\n";
+    fh << "  \"wpf_window_x\": " << settings.wpf_window_x << ",\n";
+    fh << "  \"wpf_window_y\": " << settings.wpf_window_y << ",\n";
+    fh << "  \"wpf_window_width\": " << settings.wpf_window_width << ",\n";
+    fh << "  \"wpf_window_height\": " << settings.wpf_window_height << ",\n";
+    fh << "  \"wpf_window_saved\": " << (settings.wpf_window_saved ? "true" : "false")
+       << ",\n";
+    fh << "  \"wpf_always_on_top\": " << (settings.wpf_always_on_top ? "true" : "false")
+       << "\n";
     fh << "}\n";
     fh.flush();
     if (!fh) {

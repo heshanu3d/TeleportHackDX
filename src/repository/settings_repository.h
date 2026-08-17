@@ -45,6 +45,21 @@ struct Settings {
     int window_y = -1;
     int window_width = 460;
     int window_height = 820;
+
+    // Managed desktop UI geometry. Native saves include these fields so
+    // opening/closing an ImGui build does not erase WPF/WinForms state.
+    int winforms_window_x = -1;
+    int winforms_window_y = -1;
+    int winforms_window_width = 820;
+    int winforms_window_height = 820;
+    bool winforms_window_saved = false;
+    bool winforms_always_on_top = false;
+    double wpf_window_x = -1.0;
+    double wpf_window_y = -1.0;
+    double wpf_window_width = 820.0;
+    double wpf_window_height = 740.0;
+    bool wpf_window_saved = false;
+    bool wpf_always_on_top = false;
 };
 
 class SettingsRepository {

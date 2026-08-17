@@ -318,6 +318,36 @@ void test_favourites_crud_and_save(const std::filesystem::path& dir) {
     check(baselineBuffer.str() == afterBuffer.str(),
           "failed mutation produces a byte-for-byte identical save output");
 
+    // Export uses FavouritesPorter but must produce the same canonical bytes
+    // as Save for an unchanged in-memory list.
+    const std::filesystem::path exported = dir / "exported.fav";
+    check(th_favourites_export(session, exported.string().c_str()) == 4,
+          "export reports the written count");
+    std::ifstream exportedStream(exported, std::ios::binary);
+    std::stringstream exportedBuffer;
+    exportedBuffer << exportedStream.rdbuf();
+    check(exportedBuffer.str() == baselineBuffer.str(),
+          "export and save emit identical canonical bytes");
+
+    // Merge one exact duplicate and one new point.
+    const std::filesystem::path incoming = dir / "incoming.fav";
+    {
+        std::ofstream out(incoming, std::ios::binary);
+        out << "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86-"
+            << "\xe5\x85\xa5\xe5\x8f\xa3#1#2#3#\n"; // exact duplicate
+        out << "new-category-new-point#101#102#103#0\n";
+    }
+    int32_t added = -1, skipped = -1;
+    check(th_favourites_import_merge(session, incoming.string().c_str(), &added, &skipped) == 0,
+          "import merge succeeds");
+    check(added == 1 && skipped == 1, "merge report distinguishes new and duplicate rows");
+    check(th_favourites_count(session) == 5, "merge adds only the non-duplicate row");
+
+    // Replace resets the list to the incoming file's two rows.
+    check(th_favourites_import_replace(session, incoming.string().c_str()) == 2,
+          "import replace reports loaded count");
+    check(th_favourites_count(session) == 2, "import replace swaps the in-memory list");
+
     // Round-trip: reload the saved file into a fresh session and confirm.
     th_session* fresh = th_session_create();
     if (fresh)
@@ -329,6 +359,17 @@ void test_favourites_crud_and_save(const std::filesystem::path& dir) {
         th_session_destroy(fresh);
     }
 
+    th_session_destroy(session);
+}
+
+void test_teleport_lua_requires_attachment() {
+    th_session* session = th_session_create();
+    if (!session) return;
+    check(th_teleport_lua_update_current(session, "missing.lua", "anchor", 0) == -1,
+          "Teleport.lua current-position update fails safely while detached");
+    check(th_teleport_lua_insert_current_after(session, "missing.lua", TH_CAPI_ALL_CATEGORY,
+                                                0, "new") == -1,
+          "combined Lua/table insert fails safely while detached");
     th_session_destroy(session);
 }
 
@@ -358,6 +399,7 @@ int main() {
     test_attached_operations_fail_gracefully();
     test_favourites_from_file(dir);
     test_favourites_crud_and_save(dir);
+    test_teleport_lua_requires_attachment();
     test_null_and_dangling_argument_guards();
 
     std::error_code ignored;

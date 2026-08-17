@@ -15,6 +15,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="140" />
         </Grid.RowDefinitions>
 
@@ -81,6 +82,10 @@
                     Click="EditButton_Click" />
             <Button Content="删除" Padding="10,3" Margin="0,0,6,0"
                     Click="DeleteButton_Click" />
+            <Button Content="读取到炉石" Padding="10,3" Margin="0,0,6,0"
+                    Click="ReadToLuaButton_Click" />
+            <Button Content="插后 表&amp;炉石" Padding="10,3" Margin="0,0,6,0"
+                    Click="InsertTableLuaButton_Click" />
             <Button Content="追加" Padding="10,3" Margin="0,0,6,0"
                     Click="AppendButton_Click" />
             <Button Content="保存" Padding="10,3" Margin="8,0,6,0"
@@ -113,8 +118,18 @@
                     Click="MoveSpeedToggle_Click" />
         </StackPanel>
 
-        <!-- Row 9: log -->
-        <TextBox Grid.Row="9" x:Name="LogBox" IsReadOnly="True"
+        <!-- Row 9: import/export -->
+        <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,0,0,6">
+            <Button Content="Import Merge..." Padding="10,3" Margin="0,0,6,0"
+                    Click="ImportMergeButton_Click" />
+            <Button Content="Import Replace..." Padding="10,3" Margin="0,0,6,0"
+                    Click="ImportReplaceButton_Click" />
+            <Button Content="Export..." Padding="10,3" Margin="0,0,6,0"
+                    Click="ExportButton_Click" />
+        </StackPanel>
+
+        <!-- Row 10: log -->
+        <TextBox Grid.Row="10" x:Name="LogBox" IsReadOnly="True"
                  FontFamily="Consolas" VerticalScrollBarVisibility="Auto"
                  HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                  AcceptsReturn="True" />

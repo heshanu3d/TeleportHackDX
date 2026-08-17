@@ -59,9 +59,11 @@ layout rationale this is based on):
 - Two additional .NET 8/x86 desktop UIs:
   `TeleportHackDesktopWinForms.exe` and `TeleportHackDesktopWpf.exe`. Both
   call the same C++ business services through `TeleportHackCApi.dll` and
-  currently provide attach/version selection, category/search, favourite
-  CRUD + save/reload, teleport, four patch toggles, global/movement speed,
-  logs, and always-on-top. They require the .NET 8 x86 Desktop Runtime.
+  provide attach/version selection, category/search, favourite CRUD +
+  save/reload/import/export, Teleport.lua update/combined insert, global
+  hotkeys, teleport, four patch toggles, global/movement speed, logs,
+  always-on-top, and shared settings.json persistence. They require the
+  .NET 8 x86 Desktop Runtime.
 - `TeleportHackLauncher.exe`: reads `wow_exe_path` from the shared
   `settings.json`, starts that Win32 `WoW.exe`, injects the sibling
   `TeleportHackDX.dll` once process initialization permits remote threads,
@@ -173,11 +175,11 @@ push.
    the running `WoW.exe` and click Attach.
 4. Pick your client version from the dropdown at the top the first time
    (or set `default_version` in `settings.json`).
-5. The injected and ImGui desktop builds retain the complete native feature
-   set. The WPF/WinForms builds currently include attach/version, category +
-   search, favourite CRUD/save/reload, teleport, four patch toggles, global +
-   movement speed, logs and always-on-top; import/export, Teleport.lua,
-   hotkeys and settings persistence are the next managed-UI batch.
+5. WPF and WinForms load the shared favlist/hotkey/Teleport.lua paths and
+   common values from `settings.json`, while keeping their own window bounds
+   and topmost state in separate `winforms_*` / `wpf_*` fields. Managed saves
+   preserve native ImGui layout fields byte-for-byte at the JSON property
+   level.
 
 ## Notes / caveats
 
