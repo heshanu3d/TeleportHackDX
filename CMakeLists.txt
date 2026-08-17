@@ -40,35 +40,46 @@ add_library(imgui STATIC
 )
 target_include_directories(imgui PUBLIC vendor/imgui vendor/imgui/backends)
 
-# --------------------------------------------------------- shared core lib
-# Domain/services/repository/memory-backends/UI: identical source shared by
-# both the injected DLL and the standalone desktop app (see src/ui/app.h
-# for why -- MemoryBackend abstracts away in-process vs. attach-over-RPM).
-set(CORE_SOURCES
+# ------------------------------------------------------- business core
+# Attach-mode business logic (domain / services / favourites /
+# out-of-process memory backend), no UI and no dependencies on Win32
+# widgets, ImGui, or SEH. Consumed by both th_core (which layers ImGui
+# App plus injection-only pieces on top) and TeleportHackCApi (which
+# exposes the same services to external C# UIs). Keeping this cut
+# narrow lets the C ABI DLL stay free of ImGui / D3D / comdlg32 pulls.
+set(BUSINESS_SOURCES
     src/domain/models.cpp
     src/domain/versions.cpp
-    src/memory/inprocess_backend.cpp
     src/memory/outofprocess_backend.cpp
     src/services/teleport_service.cpp
     src/services/feature_service.cpp
     src/services/favourites_service.cpp
     src/services/favourites_porter.cpp
-    src/services/hotkey_service.cpp
     src/repository/favlist_repository.cpp
-    src/repository/hotkey_config_repository.cpp
     src/repository/settings_repository.cpp
     src/repository/teleport_lua_repository.cpp
-    src/ui/app.cpp
-    src/util/paths.cpp
     src/util/process_list.cpp
 )
 
-add_library(th_core STATIC ${CORE_SOURCES})
-target_include_directories(th_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
-# PUBLIC: app.cpp calls into imgui/comdlg32 symbols that only get resolved
-# once a final DLL/EXE links against th_core, so both must propagate to
-# whichever target consumes th_core.
-target_link_libraries(th_core PUBLIC imgui comdlg32)
+add_library(th_business STATIC ${BUSINESS_SOURCES})
+target_include_directories(th_business PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(th_business PRIVATE /W4 /permissive-)
+endif()
+
+# --------------------------------------------------------- shared core lib
+# Adds the ImGui-driven App layer plus injection-only helpers (SEH-guarded
+# in-process backend, Win32 hotkeys, Teleport.lua editor, DLL-directory
+# path resolver) on top of th_business. Consumed only by the injected DLL
+# and the ImGui desktop EXE.
+add_library(th_core STATIC
+    src/memory/inprocess_backend.cpp
+    src/services/hotkey_service.cpp
+    src/repository/hotkey_config_repository.cpp
+    src/util/paths.cpp
+    src/ui/app.cpp
+)
+target_link_libraries(th_core PUBLIC th_business imgui comdlg32)
 
 if(MSVC)
     target_compile_options(th_core PRIVATE /W4 /permissive-)
@@ -97,6 +108,21 @@ if(MSVC)
     target_compile_options(TeleportHackDesktop PRIVATE /W4 /permissive-)
 endif()
 
+# ------------------------------------------------------------- C ABI DLL
+# Loaded by external processes (WPF/WinForms C# UIs). Wraps th_core's
+# Attach-mode services behind a minimal `extern "C"` surface (see
+# src/capi/api.h). Kept independent of ImGui/D3D so a caller pays no
+# CLR/graphics startup cost. Static-links th_core so the injection DLL's
+# runtime remains untouched.
+add_library(TeleportHackCApi SHARED
+    src/capi/api.cpp
+)
+target_link_libraries(TeleportHackCApi PRIVATE th_business)
+target_compile_definitions(TeleportHackCApi PRIVATE TH_CAPI_BUILDING)
+if(MSVC)
+    target_compile_options(TeleportHackCApi PRIVATE /W4 /permissive-)
+endif()
+
 # --------------------------------------------------------------- launcher
 # Console launcher: starts configured WoW.exe suspended, resumes process
 # initialization, then injects the sibling TeleportHackDX.dll. Kept independent
@@ -116,7 +142,7 @@ enable_testing()
 add_executable(orientation_tests
     tests/orientation_tests.cpp
 )
-target_link_libraries(orientation_tests PRIVATE th_core)
+target_link_libraries(orientation_tests PRIVATE th_business)
 if(MSVC)
     target_compile_options(orientation_tests PRIVATE /W4 /permissive-)
 endif()
@@ -125,7 +151,7 @@ add_test(NAME orientation_compatibility COMMAND orientation_tests)
 add_executable(teleport_lua_tests
     tests/teleport_lua_repository_tests.cpp
 )
-target_link_libraries(teleport_lua_tests PRIVATE th_core)
+target_link_libraries(teleport_lua_tests PRIVATE th_business)
 if(MSVC)
     target_compile_options(teleport_lua_tests PRIVATE /W4 /permissive-)
 endif()
@@ -139,6 +165,23 @@ if(MSVC)
     target_compile_options(settings_repository_tests PRIVATE /W4 /permissive-)
 endif()
 add_test(NAME settings_repository COMMAND settings_repository_tests)
+
+# End-to-end exercise of the C ABI: statically links the same api.cpp
+# implementation the SHARED library exports so we can call every entry
+# point directly from the test executable without dealing with runtime
+# loader differences between Linux/Windows. Verifies success paths,
+# error propagation, buffer truncation semantics, and favourites parsing
+# against a synthetic favlist.
+add_executable(capi_tests
+    tests/capi_tests.cpp
+    src/capi/api.cpp
+)
+target_link_libraries(capi_tests PRIVATE th_business)
+target_include_directories(capi_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(capi_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME capi COMMAND capi_tests)
 
 
 # Standard Windows SDK ships d3d9.h/d3d9.lib -- no legacy DirectX SDK
