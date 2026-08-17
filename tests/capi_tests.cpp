@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #include "capi/api.h"
@@ -72,6 +73,8 @@ void test_version_enumeration() {
           "negative version index rejected");
     check(th_version_name(count, scratch, sizeof(scratch)) == -1,
           "past-the-end version index rejected");
+    check(th_version_name(0, nullptr, 8) == -1,
+          "NULL output with positive capacity is rejected");
 }
 
 void test_buffer_truncation() {
@@ -219,6 +222,116 @@ void test_favourites_from_file(const std::filesystem::path& dir) {
     th_session_destroy(session);
 }
 
+void test_favourites_crud_and_save(const std::filesystem::path& dir) {
+    // Fresh session with the same three-entry favlist.fav from the previous
+    // test, then exercise every CRUD helper.
+    const std::filesystem::path source = dir / "capi_smoke.fav";
+    {
+        std::ofstream out(source, std::ios::binary);
+        out << "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86-"
+            << "\xe5\x85\xa5\xe5\x8f\xa3#1#2#3#\n";
+        out << "\xe6\x97\xa0\xe5\x88\x86\xe7\xb1\xbb#4#5#6#\n";
+        out << "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86-"
+            << "\xe5\x87\xba\xe5\x8f\xa3#7#8#9#1.857\n";
+    }
+
+    th_session* session = th_session_create();
+    if (!session) return;
+    check(th_favourites_load(session, source.string().c_str()) == 0, "reload favlist");
+
+    // Two source categories: 斯坦索姆 (2 entries) and 其他 (1 entry). Order
+    // reflects first-appearance, so 斯坦索姆 comes first.
+    check(th_favourites_category_count(session) == 2, "two source categories");
+    const std::string cat0 = read_indexed(session, 0, th_favourites_category_name);
+    const std::string cat1 = read_indexed(session, 1, th_favourites_category_name);
+    check(cat0 == "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86",
+          "category 0 is 斯坦索姆 (first-seen)");
+    check(cat1 == "\xe5\x85\xb6\xe4\xbb\x96", "category 1 is 其他");
+
+    // Insert a new 斯坦索姆-中间 point between the existing 入口/出口 rows.
+    // Category-local index 1 means "before the second 斯坦索姆 entry"
+    // (i.e. 出口, which sits at global index 2). insert_in_category
+    // therefore lands the new row at global index 2 and bumps the old
+    // 出口 to global 3.
+    const char* insertedName =
+        "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86-\xe4\xb8\xad\xe9\x97\xb4"; // 斯坦索姆-中间
+    const char* stCategory = "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86";     // 斯坦索姆
+    check(th_favourites_insert_in_category(session, stCategory, 1, insertedName,
+                                             10.0, 20.0, 30.0, 0, 0.0) == 0,
+          "insert before second 斯坦索姆 row");
+    check(th_favourites_count(session) == 4, "insert grew the list by one");
+    check(read_indexed(session, 2, th_favourites_get_description) == insertedName,
+          "insertion landed at global index 2 (before the old 出口)");
+
+    // Replace that same row with different coords + explicit orientation.
+    // In 斯坦索姆's category-local ordering, local index 1 = 中间 (global 2).
+    check(th_favourites_replace_in_category(session, stCategory, 1, insertedName,
+                                              11.0, 22.0, 33.0, 1, 2.5) == 0,
+          "replace second 斯坦索姆 row");
+    double x = 0, y = 0, z = 0, r = 0;
+    int32_t has_r = 0;
+    check(th_favourites_get_position(session, 2, &x, &y, &z, &r, &has_r) == 0,
+          "replaced row's position readable");
+    check(x == 11.0 && y == 22.0 && z == 33.0, "replaced row has new coords");
+    check(has_r == 1 && std::fabs(r - 2.5) < 1e-6, "replaced row carries orientation");
+
+    // Append after the last 斯坦索姆 entry. The new description must live in
+    // the same category (斯坦索姆) or the category-local delete below will
+    // look for it in the wrong bucket.
+    const char* appendedName =
+        "\xe6\x96\xaf\xe5\x9d\xa6\xe7\xb4\xa2\xe5\xa7\x86-\xe5\xa4\x96"; // 斯坦索姆-外
+    check(th_favourites_append_in_category(session, stCategory, 2, appendedName,
+                                             99.0, 88.0, 77.0, 0, 0.0) == 0,
+          "append after last 斯坦索姆 row");
+    check(th_favourites_count(session) == 5, "append grew the list by one");
+
+    // Delete the row we just appended (last 斯坦索姆 entry, local index 3).
+    check(th_favourites_delete_in_category(session, stCategory, 3) == 0,
+          "delete the appended row");
+    check(th_favourites_count(session) == 4, "delete shrunk the list by one");
+
+    // Failure paths leave the list unchanged. Save the current state and
+    // check byte-for-byte after a bad mutation.
+    const std::filesystem::path baseline = dir / "before_bad.fav";
+    check(th_favourites_save(session, baseline.string().c_str()) == 4,
+          "save reports the written count");
+    check(th_favourites_delete_in_category(session, stCategory, 99) == -1,
+          "out-of-range delete rejected");
+    check(th_favourites_delete_in_category(session, TH_CAPI_ALL_CATEGORY, 99) == -1,
+          "out-of-range delete in synthetic all-category is rejected safely");
+    check(th_favourites_insert_in_category(session, TH_CAPI_ALL_CATEGORY, -1, "bad",
+                                             0, 0, 0, 0, 0) == -1,
+          "negative insert index in synthetic all-category is rejected safely");
+    check(th_favourites_count(session) == 4,
+          "failed mutations leave the in-memory list unchanged");
+    const std::filesystem::path after_bad = dir / "after_bad.fav";
+    check(th_favourites_save(session, after_bad.string().c_str()) == 4,
+          "save after failed op still reports full count");
+    check(!std::filesystem::exists(after_bad.string() + ".tmp"),
+          "successful atomic save leaves no temporary file");
+
+    std::ifstream baselineStream(baseline, std::ios::binary);
+    std::ifstream afterStream(after_bad, std::ios::binary);
+    std::stringstream baselineBuffer, afterBuffer;
+    baselineBuffer << baselineStream.rdbuf();
+    afterBuffer << afterStream.rdbuf();
+    check(baselineBuffer.str() == afterBuffer.str(),
+          "failed mutation produces a byte-for-byte identical save output");
+
+    // Round-trip: reload the saved file into a fresh session and confirm.
+    th_session* fresh = th_session_create();
+    if (fresh)
+    {
+        check(th_favourites_load(fresh, baseline.string().c_str()) == 0,
+              "saved favlist reloads");
+        check(th_favourites_count(fresh) == 4,
+              "reloaded count matches the saved list");
+        th_session_destroy(fresh);
+    }
+
+    th_session_destroy(session);
+}
+
 void test_null_and_dangling_argument_guards() {
     // NULL session must not crash any entry point.
     check(th_session_is_attached(nullptr) == -1, "is_attached rejects NULL session");
@@ -244,6 +357,7 @@ int main() {
     test_session_lifecycle_defaults();
     test_attached_operations_fail_gracefully();
     test_favourites_from_file(dir);
+    test_favourites_crud_and_save(dir);
     test_null_and_dangling_argument_guards();
 
     std::error_code ignored;

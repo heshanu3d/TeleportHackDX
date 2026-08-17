@@ -109,7 +109,7 @@ if(MSVC)
 endif()
 
 # ------------------------------------------------------------- C ABI DLL
-# Loaded by external processes (WPF/WinForms C# UIs). Wraps th_core's
+# Loaded by external processes (WPF/WinForms C# UIs). Wraps th_business's
 # Attach-mode services behind a minimal `extern "C"` surface (see
 # src/capi/api.h). Kept independent of ImGui/D3D so a caller pays no
 # CLR/graphics startup cost. Static-links th_core so the injection DLL's

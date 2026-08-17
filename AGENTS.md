@@ -93,6 +93,8 @@ src/
   desktop/main.cpp               仅 EXE 使用：普通 Win32 窗口 + 自己的 D3D9
                                  设备（改编自 Dear ImGui 的
                                  example_win32_directx9），同样用 th::App
+  capi/api.{h,cpp}                稳定 extern-C 接口；静态链接 th_business，供
+                                 WPF/WinForms 通过 P/Invoke 使用，不参与 DLL 注入
   domain/                        Position/TeleportPoint/Category/
                                  HotkeyBinding + 各版本 GameVersion 内存偏移表
                                  （1.12.1/1.12.3/3.3.5），逐字从
@@ -114,11 +116,11 @@ src/
                                  不是后台线程）
   repository/                    favlist.fav / hotkey.txt / settings.json /
                                  Teleport.lua 的读写器
-  ui/app.{h,cpp}                 th::App —— 唯一的共享类。持有所有 service，
+  ui/app.{h,cpp}                 th::App —— 两个原生 ImGui 构建的共享类。持有所有 service，
                                  每帧渲染整个 ImGui 界面。通过
                                  BackendMode::{InProcess, Attach} 被两个可执行
-                                 文件**原样**共用。任何界面或 favlist/hotkey
-                                 逻辑的改动都应该只改这一处，同时对两种构建生效。
+                                 文件**原样**共用。C# 界面不使用 th::App，而是经 C ABI
+                                 调用 th_business；业务行为应继续放 service/repository 层共享。
   util/                          paths.cpp（把 settings/favlist/hotkey 路径
                                  解析为相对于 DLL/EXE 自身所在目录，而不是
                                  cwd —— 通过对自己地址调用
@@ -127,13 +129,11 @@ src/
                                  仅桌面 attach 模式使用）
 ```
 
-CMake：`th_core` 这个 STATIC 库包含除了 `dllmain.cpp`/`core/hook.cpp`
-（仅 DLL）和 `desktop/main.cpp`（仅 EXE）之外的所有代码。`TeleportHackDX`
-（SHARED）和 `TeleportHackDesktop`（可执行文件）都链接 `th_core`。`th_core`
-以 PUBLIC 方式链接 `imgui` + `comdlg32`（它们的符号只有在最终的 DLL/EXE
-链接进来之后才能真正解析）。`minhook`/`d3d9` 直接链接在两个最终 target 上，
-不经过 `th_core`；注入 DLL 还显式链接 `imm32`，用于在 WoW 的 ANSI 窗口里
-管理中文输入法 context。
+CMake：`th_business` STATIC 库包含 attach-mode 的 domain/services/repository，
+不依赖 ImGui/D3D；`th_core` 在其上增加 ImGui App、in-process backend、hotkey 和 paths。
+`TeleportHackCApi.dll` 只静态链接 `th_business`；注入 DLL 和 ImGui EXE 链接 `th_core`，
+所以 C# 层不会改变原注入 DLL 的运行时依赖。WPF/WinForms 均为 .NET 8 framework-dependent
+x86 EXE，通过共享 `TeleportHackCore.dll` P/Invoke C ABI DLL。
 
 ## 已经落实的一些不明显的设计要点
 

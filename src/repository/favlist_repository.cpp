@@ -4,6 +4,10 @@
 #include <fstream>
 #include <sstream>
 
+#ifdef _WIN32
+#include <Windows.h>
+#endif
+
 namespace th {
 
 namespace {
@@ -133,9 +137,11 @@ int FavlistRepository::save(const std::vector<TeleportPoint>& points, std::strin
     if (p.has_parent_path()) {
         std::filesystem::create_directories(p.parent_path(), ec);
     }
-    std::ofstream fh(path_, std::ios::binary | std::ios::trunc);
+    std::filesystem::path temporary = p;
+    temporary += ".tmp";
+    std::ofstream fh(temporary, std::ios::binary | std::ios::trunc);
     if (!fh) {
-        error = "cannot open " + path_ + " for writing";
+        error = "cannot open " + temporary.string() + " for writing";
         return -1;
     }
     int count = 0;
@@ -148,6 +154,30 @@ int FavlistRepository::save(const std::vector<TeleportPoint>& points, std::strin
         fh << "\n";
         ++count;
     }
+    fh.flush();
+    fh.close();
+    if (!fh) {
+        error = "failed while writing " + temporary.string();
+        std::filesystem::remove(temporary, ec);
+        return -1;
+    }
+
+#ifdef _WIN32
+    if (!MoveFileExW(temporary.c_str(), p.c_str(),
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        error = "cannot replace " + path_ + " (GetLastError=" +
+                std::to_string(GetLastError()) + ")";
+        std::filesystem::remove(temporary, ec);
+        return -1;
+    }
+#else
+    std::filesystem::rename(temporary, p, ec);
+    if (ec) {
+        error = "cannot replace " + path_ + ": " + ec.message();
+        std::filesystem::remove(temporary, ec);
+        return -1;
+    }
+#endif
     return count;
 }
 

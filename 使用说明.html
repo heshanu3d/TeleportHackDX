@@ -158,11 +158,11 @@
 
 <h2 id="download">3. 获取产物</h2>
 <p>
-  项目现在会同时产出三个程序：<code>TeleportHackDX.dll</code>（注入版，用于真正在游戏里用）、
-  <code>TeleportHackLauncher.exe</code>（自动启动 WoW 并注入 DLL）和
-  <code>TeleportHackDesktop.exe</code>（独立桌面版，见
-  <a href="#desktop">第 8 节</a>，不需要注入，用来验证界面/收藏点/热键逻辑）。
-  它们共用同一套界面和业务逻辑源码。
+  项目提供四种用户界面：<code>TeleportHackDX.dll</code>（游戏内 ImGui 注入版）、
+  <code>TeleportHackDesktop.exe</code>（ImGui 桌面版）、
+  <code>TeleportHackDesktopWinForms.exe</code> 和 <code>TeleportHackDesktopWpf.exe</code>。
+  发布包还包含自动注入用的 <code>TeleportHackLauncher.exe</code>，以及两个 C# EXE 共用的
+  <code>TeleportHackCApi.dll</code>/<code>TeleportHackCore.dll</code> 支撑库。
 </p>
 <h3>方式 A：直接下载 CI 构建产物（推荐，无需装 Visual Studio）</h3>
 <ol>
@@ -172,8 +172,8 @@
   </li>
   <li>点击最新一次状态为绿色 ✅ 的 <code>build</code> workflow run</li>
   <li>页面下方 <strong>Artifacts</strong> 区域下载 <code>TeleportHackDX-win32.zip</code></li>
-  <li>解压后得到：<code>TeleportHackDX.dll</code>、<code>TeleportHackDesktop.exe</code>、<code>TeleportHackLauncher.exe</code>、
-    <code>favlist.fav</code>、<code>hotkey.txt</code></li>
+  <li>解压后请保持全部文件在同一目录；C# EXE 还依赖各自的
+    <code>.deps.json</code>/<code>.runtimeconfig.json</code> 和系统安装的 .NET 8 x86 Desktop Runtime。</li>
 </ol>
 
 <h3>方式 B：本地用 Visual Studio 编译</h3>
@@ -184,7 +184,9 @@ cmake -A Win32 ..
 cmake --build . --config Release
 # 产物在 build\bin\Release\TeleportHackDX.dll
 # 以及  build\bin\Release\TeleportHackDesktop.exe
-#       build\bin\Release\TeleportHackLauncher.exe</pre>
+#       build\bin\Release\TeleportHackLauncher.exe
+#       build\bin\Release\TeleportHackCApi.dll
+# C# 项目另用 dotnet publish -r win-x86 --no-self-contained 构建</pre>
 <p>需要 Visual Studio 2019+ 和 CMake 3.15+；<strong>必须编译为 32 位（Win32）</strong>，
    因为 WoW 这几个版本客户端都是 32 位程序。不需要额外安装老版 DirectX SDK。</p>
 
@@ -399,7 +401,7 @@ cmake --build . --config Release
   具有相同的整体行号；目标锚点不存在或坐标/mapId 读取失败时不会修改列表或 Lua 文件。
 </p>
 
-<h2 id="desktop">8. 桌面测试版（不用注入也能验证功能）</h2>
+<h2 id="desktop">8. 三种桌面版（不用注入）</h2>
 <div class="card">
   <code>TeleportHackDesktop.exe</code> 是一个普通的桌面窗口程序（不需要注入任何进程），
   和注入版 <code>TeleportHackDX.dll</code> <strong>共用同一套界面 + 业务逻辑源码</strong>
@@ -407,6 +409,12 @@ cmake --build . --config Release
   并且通过 <code>OpenProcess</code> + <code>ReadProcessMemory</code>/<code>WriteProcessMemory</code>
   "远程"读写一个已经在运行的 <code>WoW.exe</code>，而不是被注入进去直接读写自己所在的进程。
   这样你改界面逻辑、收藏点逻辑、热键逻辑的时候，双击运行这个 exe 就能验证，不用每次都重新注入。
+</div>
+<div class="card">
+  <code>TeleportHackDesktopWinForms.exe</code> 与 <code>TeleportHackDesktopWpf.exe</code>
+  通过 <code>TeleportHackCApi.dll</code> 调用同一套 C++ 业务服务。两者当前支持进程 Attach、版本选择、
+  分类/搜索、收藏点插前/插后/编辑/删除/追加/保存/重载、双击传送、四个补丁开关、Global/Move speed、
+  日志与 Always-on-top。运行前需安装 <strong>.NET 8 x86 Desktop Runtime</strong>。
 </div>
 <h3>使用方法</h3>
 <ol>

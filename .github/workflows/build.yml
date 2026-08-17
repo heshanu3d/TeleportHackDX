@@ -98,10 +98,12 @@ jobs:
           # the base class libraries.
           Copy-Item publish/winforms/TeleportHackDesktopWinForms.exe dist/
           Copy-Item publish/winforms/TeleportHackDesktopWinForms.dll dist/
+          Copy-Item publish/winforms/TeleportHackDesktopWinForms.deps.json dist/
           Copy-Item publish/winforms/TeleportHackDesktopWinForms.runtimeconfig.json dist/
           Copy-Item publish/winforms/TeleportHackCore.dll dist/
           Copy-Item publish/wpf/TeleportHackDesktopWpf.exe dist/
           Copy-Item publish/wpf/TeleportHackDesktopWpf.dll dist/
+          Copy-Item publish/wpf/TeleportHackDesktopWpf.deps.json dist/
           Copy-Item publish/wpf/TeleportHackDesktopWpf.runtimeconfig.json dist/
           Copy-Item favlist.fav dist/
           Copy-Item hotkey.txt dist/

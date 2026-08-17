@@ -13,6 +13,8 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="140" />
         </Grid.RowDefinitions>
 
@@ -35,17 +37,22 @@
                       Unchecked="AlwaysOnTopCheck_CheckedChanged" />
         </StackPanel>
 
-        <!-- Row 2: load + search -->
+        <!-- Row 2: load + category + search -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,6">
             <Button x:Name="LoadFavouritesButton" Content="Load favlist.fav..." Padding="10,2"
                     Click="LoadFavouritesButton_Click" />
+            <TextBlock Text="分类:" VerticalAlignment="Center" Margin="12,0,4,0" />
+            <ComboBox x:Name="CategoryCombo" Width="160"
+                      SelectionChanged="CategoryCombo_SelectionChanged" />
             <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="12,0,4,0" />
-            <TextBox x:Name="SearchBox" Width="300" VerticalAlignment="Center" TextChanged="SearchBox_TextChanged" />
+            <TextBox x:Name="SearchBox" Width="220" VerticalAlignment="Center"
+                     TextChanged="SearchBox_TextChanged" />
         </StackPanel>
 
         <!-- Row 3: favourites list -->
         <ListView Grid.Row="3" x:Name="FavouritesView" Margin="0,0,0,8"
-                  MouseDoubleClick="FavouritesView_MouseDoubleClick">
+                  MouseDoubleClick="FavouritesView_MouseDoubleClick"
+                  SelectionChanged="FavouritesView_SelectionChanged">
             <ListView.View>
                 <GridView>
                     <GridViewColumn Header="描述" Width="340" DisplayMemberBinding="{Binding Description}" />
@@ -58,21 +65,45 @@
             </ListView.View>
         </ListView>
 
-        <!-- Row 4: teleport button -->
-        <Button Grid.Row="4" x:Name="TeleportButton" Content="Teleport" Height="40"
+        <!-- Row 4: description input -->
+        <DockPanel Grid.Row="4" Margin="0,0,0,6">
+            <TextBlock Text="描述:" VerticalAlignment="Center" Margin="0,0,6,0" />
+            <TextBox x:Name="DescriptionBox" />
+        </DockPanel>
+
+        <!-- Row 5: CRUD -->
+        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,6">
+            <Button Content="插前" Padding="10,3" Margin="0,0,6,0"
+                    Click="InsertBeforeButton_Click" />
+            <Button Content="插后" Padding="10,3" Margin="0,0,6,0"
+                    Click="InsertAfterButton_Click" />
+            <Button Content="编辑" Padding="10,3" Margin="0,0,6,0"
+                    Click="EditButton_Click" />
+            <Button Content="删除" Padding="10,3" Margin="0,0,6,0"
+                    Click="DeleteButton_Click" />
+            <Button Content="追加" Padding="10,3" Margin="0,0,6,0"
+                    Click="AppendButton_Click" />
+            <Button Content="保存" Padding="10,3" Margin="8,0,6,0"
+                    Click="SaveButton_Click" />
+            <Button Content="重载" Padding="10,3" Margin="0,0,6,0"
+                    Click="ReloadButton_Click" />
+        </StackPanel>
+
+        <!-- Row 6: teleport button -->
+        <Button Grid.Row="6" x:Name="TeleportButton" Content="Teleport" Height="40"
                 Background="#1E50A0" Foreground="White" FontWeight="Bold"
                 Click="TeleportButton_Click" Margin="0,0,0,8" />
 
-        <!-- Row 5: toggles -->
-        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,6">
+        <!-- Row 7: toggles -->
+        <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,0,0,6">
             <Button Content="AntiJump" Padding="10,4" Margin="0,0,6,0" Click="AntiJumpButton_Click" />
             <Button Content="AutoLoot" Padding="10,4" Margin="0,0,6,0" Click="AutoLootButton_Click" />
             <Button Content="PatchLoot" Padding="10,4" Margin="0,0,6,0" Click="PatchLootButton_Click" />
             <Button Content="LuaUnlock" Padding="10,4" Margin="0,0,6,0" Click="LuaUnlockButton_Click" />
         </StackPanel>
 
-        <!-- Row 6: speeds -->
-        <StackPanel Grid.Row="6" Orientation="Horizontal" Margin="0,0,0,6">
+        <!-- Row 8: speeds -->
+        <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,0,0,6">
             <TextBlock Text="Global speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
             <TextBox x:Name="GlobalSpeedInput" Width="70" Text="7" VerticalAlignment="Center" />
             <Button Content="Apply" Padding="10,2" Margin="6,0,0,0" Click="GlobalSpeedApply_Click" />
@@ -82,8 +113,8 @@
                     Click="MoveSpeedToggle_Click" />
         </StackPanel>
 
-        <!-- Row 7: log -->
-        <TextBox Grid.Row="7" x:Name="LogBox" IsReadOnly="True"
+        <!-- Row 9: log -->
+        <TextBox Grid.Row="9" x:Name="LogBox" IsReadOnly="True"
                  FontFamily="Consolas" VerticalScrollBarVisibility="Auto"
                  HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                  AcceptsReturn="True" />

@@ -26,7 +26,7 @@ namespace {
 // -GetString idiom used by every other API here.
 int32_t copy_string(const std::string& source, char* out, int32_t out_size) {
     const int32_t needed = static_cast<int32_t>(source.size());
-    if (out == nullptr) return needed;
+    if (out == nullptr) return out_size > 0 ? -1 : needed;
     if (out_size <= 0) return needed;
     const int32_t writable = out_size - 1; // reserve NUL
     const int32_t copy = writable < needed ? writable : needed;
@@ -97,7 +97,7 @@ th_process_list(const char* executable, th_process_entry* out, int32_t max_entri
         std::memcpy(out[i].exe_name, name.data(), copy);
         out[i].exe_name[copy] = '\0';
     }
-    return total;
+    return copies;
 }
 
 // -------------------------------------------------------------------------
@@ -354,4 +354,125 @@ th_favourites_get_position(th_session* session, int32_t index, double* x, double
     if (has_r) *has_r = pos.orientation.has_value() ? 1 : 0;
     if (r && pos.orientation.has_value()) *r = *pos.orientation;
     return 0;
+}
+
+// -------------------------------------------------------------------------
+// Favourites CRUD helpers. All of them route through a temporary
+// FavouritesService so we can reuse the existing category-local index
+// resolution + insert/append/replace/delete logic without duplicating it
+// here. The service holds a *copy* of session->favourites while mutating,
+// and we copy back only on success -- this way a failed operation (e.g.
+// out-of-range index) leaves the session's list untouched, matching the
+// C ABI's "no partial writes on -1" convention.
+// -------------------------------------------------------------------------
+
+namespace {
+
+th::FavouritesService make_service(th_session* session) {
+    // FavlistRepository's path only matters for reload/save; we never call
+    // either from these helpers, so pass an empty path.
+    th::FavouritesService service{th::FavlistRepository("")};
+    service.replace_all(session->favourites);
+    return service;
+}
+
+int32_t make_position(double x, double y, double z, int32_t has_r, double r,
+                      th::Position& out) {
+    out.x = x;
+    out.y = y;
+    out.z = z;
+    out.orientation = has_r ? std::optional<double>(r) : std::nullopt;
+    return 0;
+}
+
+using MutatorFn = bool (th::FavouritesService::*)(const std::string&, int,
+                                                   const th::TeleportPoint&, std::string&);
+
+int32_t run_mutator(th_session* session, MutatorFn fn, const char* category, int32_t local_index,
+                    const char* description, double x, double y, double z, int32_t has_r,
+                    double r) {
+    if (!session || !category || !description) return -1;
+    th::Position pos;
+    make_position(x, y, z, has_r, r, pos);
+    th::TeleportPoint point{description, pos};
+    auto service = make_service(session);
+    std::string error;
+    if (!(service.*fn)(category, local_index, point, error)) {
+        session->last_error = error;
+        return -1;
+    }
+    session->favourites = service.all_points();
+    session->last_error.clear();
+    return 0;
+}
+
+} // namespace
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_category_count(th_session* session) {
+    if (!session) return -1;
+    auto service = make_service(session);
+    return static_cast<int32_t>(service.category_names().size());
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_category_name(th_session* session, int32_t index, char* out, int32_t out_size) {
+    if (!session) return -1;
+    auto service = make_service(session);
+    const auto names = service.category_names();
+    if (index < 0 || static_cast<size_t>(index) >= names.size()) return -1;
+    return copy_string(names[static_cast<size_t>(index)], out, out_size);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_insert_in_category(th_session* session, const char* category, int32_t local_index,
+                                   const char* description, double x, double y, double z,
+                                   int32_t has_r, double r) {
+    return run_mutator(session, &th::FavouritesService::insert_in_category, category, local_index,
+                        description, x, y, z, has_r, r);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_append_in_category(th_session* session, const char* category, int32_t local_index,
+                                   const char* description, double x, double y, double z,
+                                   int32_t has_r, double r) {
+    return run_mutator(session, &th::FavouritesService::append_in_category, category, local_index,
+                        description, x, y, z, has_r, r);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_replace_in_category(th_session* session, const char* category, int32_t local_index,
+                                    const char* description, double x, double y, double z,
+                                    int32_t has_r, double r) {
+    return run_mutator(session, &th::FavouritesService::replace_in_category, category, local_index,
+                        description, x, y, z, has_r, r);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
+th_favourites_delete_in_category(th_session* session, const char* category, int32_t local_index) {
+    if (!session || !category) return -1;
+    auto service = make_service(session);
+    std::string error;
+    th::TeleportPoint removed;
+    if (!service.delete_in_category(category, local_index, removed, error)) {
+        session->last_error = error;
+        return -1;
+    }
+    session->favourites = service.all_points();
+    session->last_error.clear();
+    return 0;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_save(th_session* session,
+                                                                    const char* path) {
+    if (!session || !path) return -1;
+    th::FavlistRepository repo(path);
+    std::string error;
+    int written = repo.save(session->favourites, error);
+    if (written < 0) {
+        session->last_error = error;
+        return -1;
+    }
+    session->last_error.clear();
+    return written;
 }

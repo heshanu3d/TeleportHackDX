@@ -39,8 +39,18 @@ void FavouritesService::add(const TeleportPoint& point) { points_.push_back(poin
 bool FavouritesService::global_index(const std::string& category, int local_index,
                                       bool allow_end, int& out, std::string& error) const {
     if (category == ALL_CATEGORY) {
-        out = local_index;
-        return true;
+        const int size = static_cast<int>(points_.size());
+        const bool valid = local_index >= 0 &&
+                           (allow_end ? local_index <= size : local_index < size);
+        if (valid) {
+            out = local_index;
+            return true;
+        }
+        std::ostringstream ss;
+        ss << "Index " << local_index << " out of range in category '" << category
+           << "' (size=" << size << ")";
+        error = ss.str();
+        return false;
     }
     int seen = 0;
     for (size_t i = 0; i < points_.size(); ++i) {

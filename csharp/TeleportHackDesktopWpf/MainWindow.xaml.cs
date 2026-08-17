@@ -1,4 +1,4 @@
-// MVP WPF UI for TeleportHackDX. Deliberately code-behind (no MVVM
+// MVP+ WPF UI for TeleportHackDX. Deliberately code-behind (no MVVM
 // framework) so the whole surface is reviewable inline. See
 // ../../csharp/TeleportHackCore for the P/Invoke wrapper this drives.
 using System;
@@ -24,6 +24,7 @@ public partial class MainWindow : Window
 
     private IReadOnlyList<FavouritePoint> _allFavourites = Array.Empty<FavouritePoint>();
     private readonly ObservableCollection<FavouriteRow> _rows = new();
+    private string? _favlistPath;
 
     public MainWindow()
     {
@@ -103,10 +104,27 @@ public partial class MainWindow : Window
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => RefreshFavouritesView();
 
+    private void CategoryCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        => RefreshFavouritesView();
+
+    private void FavouritesView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (FavouritesView.SelectedItem is FavouriteRow row)
+            DescriptionBox.Text = row.Point.Description;
+    }
+
     private void FavouritesView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => TeleportSelected();
 
     private void TeleportButton_Click(object sender, RoutedEventArgs e) => TeleportSelected();
+
+    private void InsertBeforeButton_Click(object sender, RoutedEventArgs e) => InsertBeforeSelected();
+    private void InsertAfterButton_Click(object sender, RoutedEventArgs e) => InsertAfterSelected();
+    private void EditButton_Click(object sender, RoutedEventArgs e) => EditSelected();
+    private void DeleteButton_Click(object sender, RoutedEventArgs e) => DeleteSelected();
+    private void AppendButton_Click(object sender, RoutedEventArgs e) => AppendToCategory();
+    private void SaveButton_Click(object sender, RoutedEventArgs e) => SaveFavourites();
+    private void ReloadButton_Click(object sender, RoutedEventArgs e) => ReloadFavourites();
 
     private void AntiJumpButton_Click(object sender, RoutedEventArgs e)
         => LogToggle("AntiJump", _session.ToggleAntiJump);
@@ -165,6 +183,8 @@ public partial class MainWindow : Window
         try
         {
             _session.LoadFavourites(path);
+            _favlistPath = path;
+            RefreshCategoryCombo();
             _allFavourites = _session.AllFavourites();
             RefreshFavouritesView();
             Log($"loaded {_allFavourites.Count} favourites from {path}");
@@ -172,18 +192,61 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("[error] load favourites: " + ex.Message); }
     }
 
+    private void ReloadFavourites()
+    {
+        if (_favlistPath is null)
+        {
+            Log("[warn] no favlist loaded yet");
+            return;
+        }
+        LoadFavouritesFromPath(_favlistPath);
+    }
+
+    private void SaveFavourites()
+    {
+        if (_favlistPath is null)
+        {
+            Log("[warn] no favlist path known -- use Load first");
+            return;
+        }
+        try
+        {
+            int written = _session.SaveFavourites(_favlistPath);
+            Log($"saved {written} favourites to {_favlistPath}");
+        }
+        catch (Exception ex) { Log("[error] save favourites: " + ex.Message); }
+    }
+
+    private void RefreshCategoryCombo(string? preferred = null)
+    {
+        CategoryCombo.Items.Clear();
+        CategoryCombo.Items.Add(TeleportSession.AllCategory);
+        try
+        {
+            foreach (var category in _session.Categories()) CategoryCombo.Items.Add(category);
+        }
+        catch (Exception ex) { Log("[error] enumerate categories: " + ex.Message); }
+        int preferredIndex = preferred is null ? -1 : CategoryCombo.Items.IndexOf(preferred);
+        CategoryCombo.SelectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
+    }
+
     private void RefreshFavouritesView()
     {
         _rows.Clear();
         var needle = SearchBox.Text?.Trim() ?? string.Empty;
+        var category = CategoryCombo.SelectedItem as string ?? TeleportSession.AllCategory;
         foreach (var point in _allFavourites)
         {
+            if (!MatchesCategory(point, category)) continue;
             if (needle.Length > 0 &&
                 point.Description.IndexOf(needle, StringComparison.OrdinalIgnoreCase) < 0)
                 continue;
             _rows.Add(new FavouriteRow(point));
         }
     }
+
+    private static bool MatchesCategory(FavouritePoint point, string category)
+        => category == TeleportSession.AllCategory || point.Category == category;
 
     private void TeleportSelected()
     {
@@ -201,6 +264,160 @@ public partial class MainWindow : Window
                 : $"teleported to '{p.Description}'");
         }
         catch (Exception ex) { Log("[error] teleport: " + ex.Message); }
+    }
+
+    // -------------------------------------------------------------------------
+    // Favourites CRUD
+    // -------------------------------------------------------------------------
+
+    private FavouritePoint? SelectedFavourite()
+        => FavouritesView.SelectedItem is FavouriteRow row ? row.Point : null;
+
+    private int? SelectedLocalIndex()
+    {
+        var point = SelectedFavourite();
+        if (point is null) return null;
+        var category = CurrentCategoryForCrud();
+        int local = 0;
+        foreach (var candidate in _allFavourites)
+        {
+            if (!MatchesCategory(candidate, category)) continue;
+            if (candidate.Index == point.Value.Index) return local;
+            ++local;
+        }
+        return null;
+    }
+
+    private string CurrentCategoryForCrud()
+        => CategoryCombo.SelectedItem as string ?? TeleportSession.AllCategory;
+
+    private bool RequireSelectedIndex(out int localIndex)
+    {
+        var selected = SelectedLocalIndex();
+        if (selected is null)
+        {
+            Log("[warn] pick a row first");
+            localIndex = -1;
+            return false;
+        }
+        localIndex = selected.Value;
+        return true;
+    }
+
+    private bool RequireDescription(out string description)
+    {
+        description = DescriptionBox.Text?.Trim() ?? string.Empty;
+        if (description.Length != 0) return true;
+        Log("[warn] type a description first");
+        return false;
+    }
+
+    private bool RequirePosition(out double x, out double y, out double z, out double? r)
+    {
+        x = y = z = 0;
+        r = null;
+        try
+        {
+            var position = _session.ReadPosition();
+            x = position.X;
+            y = position.Y;
+            z = position.Z;
+            r = position.Orientation;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Log("[error] read current position: " + ex.Message);
+            return false;
+        }
+    }
+
+    private void InsertBeforeSelected()
+    {
+        if (!RequireSelectedIndex(out int index) ||
+            !RequireDescription(out string description) ||
+            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+        try
+        {
+            _session.InsertInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            AfterFavlistMutation($"inserted '{description}' before row {index}",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 插前: " + ex.Message); }
+    }
+
+    private void InsertAfterSelected()
+    {
+        if (!RequireSelectedIndex(out int index) ||
+            !RequireDescription(out string description) ||
+            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+        try
+        {
+            _session.AppendInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            AfterFavlistMutation($"inserted '{description}' after row {index}",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 插后: " + ex.Message); }
+    }
+
+    private void EditSelected()
+    {
+        if (!RequireSelectedIndex(out int index) ||
+            !RequireDescription(out string description) ||
+            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+        try
+        {
+            _session.ReplaceInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            AfterFavlistMutation($"updated row {index} ('{description}')",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 编辑: " + ex.Message); }
+    }
+
+    private void DeleteSelected()
+    {
+        if (!RequireSelectedIndex(out int index)) return;
+        try
+        {
+            _session.DeleteInCategory(CurrentCategoryForCrud(), index);
+            AfterFavlistMutation($"deleted row {index}");
+        }
+        catch (Exception ex) { Log("[error] 删除: " + ex.Message); }
+    }
+
+    private void AppendToCategory()
+    {
+        var category = CurrentCategoryForCrud();
+        int localCount = _allFavourites.Count(point => MatchesCategory(point, category));
+        if (!RequireDescription(out string description) ||
+            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+        try
+        {
+            if (localCount == 0)
+                _session.InsertInCategory(category, 0, description, x, y, z, r);
+            else
+                _session.AppendInCategory(category, localCount - 1, description, x, y, z, r);
+            AfterFavlistMutation($"appended '{description}' after the last row of {category}",
+                PreferredCategoryForDescription(description));
+        }
+        catch (Exception ex) { Log("[error] 追加: " + ex.Message); }
+    }
+
+    private string PreferredCategoryForDescription(string description)
+    {
+        if (CurrentCategoryForCrud() == TeleportSession.AllCategory)
+            return TeleportSession.AllCategory;
+        int separator = description.IndexOf('-');
+        return separator >= 0 ? description[..separator] : "其他";
+    }
+
+    private void AfterFavlistMutation(string message, string? preferredCategory = null)
+    {
+        string previousCategory = preferredCategory ?? CurrentCategoryForCrud();
+        _allFavourites = _session.AllFavourites();
+        RefreshCategoryCombo(previousCategory);
+        RefreshFavouritesView();
+        Log(message);
     }
 
     private void LogToggle(string name, Func<bool> action)

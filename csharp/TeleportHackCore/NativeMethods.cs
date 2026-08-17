@@ -136,6 +136,40 @@ internal static class NativeMethods
                                                          out double y, out double z, out double r,
                                                          out int hasOrientation);
 
+    // ---- favourites: CRUD (added post-MVP; only-append to preserve ABI) --
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_category_count(IntPtr session);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_category_name(IntPtr session, int index,
+                                                          byte[]? buffer, int bufferSize);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_insert_in_category(IntPtr session, byte[] category,
+                                                                int localIndex, byte[] description,
+                                                                double x, double y, double z,
+                                                                int hasR, double r);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_append_in_category(IntPtr session, byte[] category,
+                                                                int localIndex, byte[] description,
+                                                                double x, double y, double z,
+                                                                int hasR, double r);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_replace_in_category(IntPtr session, byte[] category,
+                                                                 int localIndex, byte[] description,
+                                                                 double x, double y, double z,
+                                                                 int hasR, double r);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_delete_in_category(IntPtr session, byte[] category,
+                                                                int localIndex);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_save(IntPtr session, byte[] path);
+
     // ---- helpers ---------------------------------------------------------
 
     /// <summary>

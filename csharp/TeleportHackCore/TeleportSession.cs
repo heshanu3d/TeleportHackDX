@@ -270,4 +270,86 @@ public sealed class TeleportSession : IDisposable
         for (int i = 0; i < count; ++i) list.Add(GetFavourite(i));
         return list;
     }
+
+    // ---- favourites CRUD (post-MVP additions) ---------------------------
+
+    /// <summary>
+    /// Synthetic "all points" bucket recognised by every CRUD helper below
+    /// -- pass this for `category` to bypass category-local index resolution.
+    /// Matches th::ALL_CATEGORY / TH_CAPI_ALL_CATEGORY in the C header.
+    /// </summary>
+    public const string AllCategory = "所有";
+
+    public IReadOnlyList<string> Categories()
+    {
+        RequireHandle();
+        int count = th_favourites_category_count(_handle);
+        if (count <= 0) return Array.Empty<string>();
+        var list = new List<string>(count);
+        for (int i = 0; i < count; ++i)
+        {
+            int needed = th_favourites_category_name(_handle, i, null, 0);
+            if (needed <= 0) continue;
+            var buffer = new byte[needed + 1];
+            th_favourites_category_name(_handle, i, buffer, buffer.Length);
+            list.Add(System.Text.Encoding.UTF8.GetString(buffer, 0, needed));
+        }
+        return list;
+    }
+
+    public void InsertInCategory(string category, int localIndex, string description,
+                                   double x, double y, double z, double? orientation = null)
+    {
+        RequireHandle();
+        int hasR = orientation.HasValue ? 1 : 0;
+        double r = orientation ?? 0.0;
+        CheckResult(
+            th_favourites_insert_in_category(_handle, ToUtf8(category), localIndex,
+                                              ToUtf8(description), x, y, z, hasR, r),
+            "insert favourite");
+    }
+
+    public void AppendInCategory(string category, int localIndex, string description,
+                                   double x, double y, double z, double? orientation = null)
+    {
+        RequireHandle();
+        int hasR = orientation.HasValue ? 1 : 0;
+        double r = orientation ?? 0.0;
+        CheckResult(
+            th_favourites_append_in_category(_handle, ToUtf8(category), localIndex,
+                                              ToUtf8(description), x, y, z, hasR, r),
+            "append favourite");
+    }
+
+    public void ReplaceInCategory(string category, int localIndex, string description,
+                                    double x, double y, double z, double? orientation = null)
+    {
+        RequireHandle();
+        int hasR = orientation.HasValue ? 1 : 0;
+        double r = orientation ?? 0.0;
+        CheckResult(
+            th_favourites_replace_in_category(_handle, ToUtf8(category), localIndex,
+                                                ToUtf8(description), x, y, z, hasR, r),
+            "replace favourite");
+    }
+
+    public void DeleteInCategory(string category, int localIndex)
+    {
+        RequireHandle();
+        CheckResult(th_favourites_delete_in_category(_handle, ToUtf8(category), localIndex),
+            "delete favourite");
+    }
+
+    /// <summary>
+    /// Persists the current in-memory list to `path` in favlist.fav's
+    /// canonical 5-field form. Returns the number of records written.
+    /// </summary>
+    public int SaveFavourites(string path)
+    {
+        RequireHandle();
+        int written = th_favourites_save(_handle, ToUtf8(path));
+        if (written < 0)
+            throw new TeleportHackException("save favourites", LastError());
+        return written;
+    }
 }

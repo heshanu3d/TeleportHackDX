@@ -14,8 +14,8 @@
 //   * The typical return convention is `0` on success and `-1` on failure.
 //     Failure details live in a per-session UTF-8 error string retrievable
 //     via th_session_last_error().
-//   * The API is intentionally minimal (MVP: attach, version, position,
-//     teleport, speed hacks, four feature toggles, favourites read-only).
+//   * The API starts with a compact attach/teleport/feature/favourites
+//     surface and only grows by appending new exports.
 //     Additional functionality is added by appending new functions -- never
 //     by changing an existing signature -- so we don't break already
 //     shipped C# clients.
@@ -78,8 +78,9 @@ typedef struct {
 } th_process_entry;
 
 // Enumerates running processes whose executable matches `executable` (case
-// insensitive, e.g. "WoW.exe"). Writes up to `max_entries` results into
-// `out`. Returns the number of entries written, or -1 on Toolhelp failure.
+// insensitive, e.g. "WoW.exe"). With `out == NULL`, returns the current
+// total count for sizing. Otherwise writes up to `max_entries` and returns
+// the number actually written, or -1 on invalid input.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_process_list(const char* executable,
                                                      th_process_entry* out,
                                                      int32_t max_entries);
@@ -166,7 +167,7 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_toggle_lua_unlock(th_session* ses
                                                                     int32_t* now_on);
 
 // -------------------------------------------------------------------------
-// Favourites (read-only for MVP)
+// Favourites base accessors
 // -------------------------------------------------------------------------
 
 // Loads points from a favlist.fav path (UTF-8). Existing loaded points are
@@ -189,6 +190,68 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_get_position(th_session* sessi
                                                                  int32_t index, double* x,
                                                                  double* y, double* z,
                                                                  double* r, int32_t* has_r);
+
+// -------------------------------------------------------------------------
+// Favourites -- category enumeration and CRUD (added after the initial
+// release; older bindings that only bound the read-only surface above will
+// keep working).
+// -------------------------------------------------------------------------
+
+// Number of unique categories (excluding the synthetic "所有"). Categories
+// come from the "描述-其余部分" split of each point's description; the order
+// matches first-appearance in the favourites list.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_category_count(th_session* session);
+
+// UTF-8 name of the category at `index`. Same buffer-out contract as
+// th_version_name (returns needed bytes; NUL-terminates output; -1 on
+// invalid index).
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_category_name(th_session* session,
+                                                                  int32_t index, char* out,
+                                                                  int32_t out_size);
+
+// Pass this literal string (UTF-8) as `category` to any CRUD function below
+// to operate on the flat "all points" list rather than a specific category.
+// This is what the ImGui App displays when the "所有" bucket is picked.
+#define TH_CAPI_ALL_CATEGORY "\xe6\x89\x80\xe6\x9c\x89" // 所有
+
+// Inserts a new point before the row at `local_index` inside `category`.
+// `category` selects the insertion anchor only; the new point's own category
+// is always derived from the prefix of `description`, matching the existing
+// FavouritesService/ImGui behaviour. Set `has_r` to non-zero to include an
+// orientation.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_insert_in_category(th_session* session,
+                                                                       const char* category,
+                                                                       int32_t local_index,
+                                                                       const char* description,
+                                                                       double x, double y, double z,
+                                                                       int32_t has_r, double r);
+
+// Inserts after the row at `local_index` inside `category`.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_append_in_category(th_session* session,
+                                                                       const char* category,
+                                                                       int32_t local_index,
+                                                                       const char* description,
+                                                                       double x, double y, double z,
+                                                                       int32_t has_r, double r);
+
+// Replaces the row at `local_index` inside `category` with the given values.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_replace_in_category(th_session* session,
+                                                                        const char* category,
+                                                                        int32_t local_index,
+                                                                        const char* description,
+                                                                        double x, double y,
+                                                                        double z, int32_t has_r,
+                                                                        double r);
+
+// Deletes the row at `local_index` inside `category`.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_delete_in_category(th_session* session,
+                                                                       const char* category,
+                                                                       int32_t local_index);
+
+// Writes the current in-memory favourites list to `path` (5-field canonical
+// format matching FavlistRepository::save). Returns the count of records
+// written on success, or -1 on failure.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_save(th_session* session, const char* path);
 
 #ifdef __cplusplus
 } // extern "C"

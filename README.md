@@ -56,6 +56,12 @@ layout rationale this is based on):
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
   since the DLL build always operates on its own host process. The desktop
   toolbar also has a persisted `Always on top` toggle for its native window.
+- Two additional .NET 8/x86 desktop UIs:
+  `TeleportHackDesktopWinForms.exe` and `TeleportHackDesktopWpf.exe`. Both
+  call the same C++ business services through `TeleportHackCApi.dll` and
+  currently provide attach/version selection, category/search, favourite
+  CRUD + save/reload, teleport, four patch toggles, global/movement speed,
+  logs, and always-on-top. They require the .NET 8 x86 Desktop Runtime.
 - `TeleportHackLauncher.exe`: reads `wow_exe_path` from the shared
   `settings.json`, starts that Win32 `WoW.exe`, injects the sibling
   `TeleportHackDX.dll` once process initialization permits remote threads,
@@ -96,6 +102,7 @@ src/
   core/hook.cpp           D3D9 EndScene/Reset hook, WndProc hook (TeleportHackDX.dll only)
   desktop/main.cpp        Standalone Win32 + D3D9 window/message loop (TeleportHackDesktop.exe only)
   launcher/main.cpp       Starts configured WoW.exe and injects TeleportHackDX.dll
+  capi/                    Stable extern-C facade used by C# desktop UIs
   domain/                 Position/TeleportPoint/Category/HotkeyBinding + per-version memory layout
   memory/                 MemoryBackend interface + InProcessBackend (SEH-guarded) + OutOfProcessBackend (RPM/WPM)
   services/               TeleportService, FeatureService, FavouritesService, HotkeyService, ...
@@ -109,14 +116,19 @@ tests/
   orientation_tests.cpp           favlist.fav format + 3.3.5 pos_r compatibility tests (CTest)
   teleport_lua_repository_tests.cpp  Teleport.lua single-entry edit tests, incl. against the real file (CTest)
   settings_repository_tests.cpp   shared settings + separate DLL/desktop ImGui layout tests (CTest)
+csharp/
+  TeleportHackCore/               P/Invoke declarations + managed session wrapper
+  TeleportHackDesktopWinForms/    .NET 8 WinForms attach UI
+  TeleportHackDesktopWpf/         .NET 8 WPF attach UI
 favlist.fav, hotkey.txt   starter data copied from TeleportHackOnVanilla
 使用说明.html              full Chinese walkthrough (build/inject/desktop-mode/troubleshooting)
 ```
 
-`CMakeLists.txt` factors the shared UI/business sources into a `th_core`
-static library that `TeleportHackDX` (SHARED) and `TeleportHackDesktop`
-(executable) link against. The small launcher only compiles the settings and
-path helpers it needs.
+`CMakeLists.txt` separates `th_business` (attach-mode domain/services and
+repositories, no ImGui/D3D) from `th_core` (ImGui App and injection-only
+helpers). `TeleportHackCApi.dll` statically links only `th_business`, while
+the injected DLL and ImGui EXE link `th_core`; adding C# UIs therefore does
+not alter the injection DLL's runtime dependency graph.
 
 ## Building
 
@@ -131,23 +143,24 @@ cmake --build . --config Release
 ctest -C Release --output-on-failure
 ```
 
-Output: `build/bin/Release/TeleportHackDX.dll`,
-`build/bin/Release/TeleportHackDesktop.exe`, and
-`build/bin/Release/TeleportHackLauncher.exe`.
+Native output: `TeleportHackDX.dll`, `TeleportHackDesktop.exe`,
+`TeleportHackLauncher.exe`, and `TeleportHackCApi.dll`. CI additionally runs
+`dotnet publish -r win-x86 --no-self-contained` for
+`TeleportHackDesktopWinForms.exe` and `TeleportHackDesktopWpf.exe`.
 
 No legacy DirectX SDK (June 2010) is required -- only `d3d9.h`/`d3d9.lib`
 from the standard Windows SDK, which ships with Visual Studio. CI
-(`.github/workflows/build.yml`) builds all three on `windows-latest` on every
+(`.github/workflows/build.yml`) builds all native and managed targets on
+`windows-latest` on every
 push.
 
 ## Usage
 
-1. Copy `TeleportHackDX.dll`, `TeleportHackDesktop.exe`,
-   `TeleportHackLauncher.exe`, `favlist.fav`, and `hotkey.txt` into the same
-   folder (they can be anywhere; the
-   DLL/EXE locates its own directory at runtime and reads/writes
-   `favlist.fav` / `hotkey.txt` / `settings.json` next to itself, not next
-   to `WoW.exe`).
+1. Keep the downloaded artifact files together. In particular, both C# EXEs
+   require the sibling `TeleportHackCore.dll`, `TeleportHackCApi.dll`, their
+   `.deps.json`/`.runtimeconfig.json` files, and the installed .NET 8 x86
+   Desktop Runtime. The native binaries resolve data files from their own
+   directory rather than from `WoW.exe`'s working directory.
 2. For one-click launch, set `wow_exe_path` in `settings.json` (or through
    the Settings window), then double-click `TeleportHackLauncher.exe`.
    It starts WoW and injects the sibling DLL automatically.
@@ -155,15 +168,16 @@ push.
    injector (Cheat Engine, Extreme Injector, Xenos, ...) -- see
    `使用说明.html` for a step-by-step Cheat Engine walkthrough. **Win +
    Insert** toggles the overlay.
-   **Desktop mode**: just run `TeleportHackDesktop.exe`, pick the running
-   `WoW.exe` from the "WoW 进程" list at the top and click Attach.
+   **Desktop mode**: run `TeleportHackDesktop.exe` (ImGui),
+   `TeleportHackDesktopWinForms.exe`, or `TeleportHackDesktopWpf.exe`; pick
+   the running `WoW.exe` and click Attach.
 4. Pick your client version from the dropdown at the top the first time
    (or set `default_version` in `settings.json`).
-5. Everything else is identical between both builds and mirrors the
-   original tool's layout: category combo, search box, favourites table,
-   description input, `step`/AntiJump/AutoLoot/LuaUnlock/PatchLoot toggle
-   row, insert/append/edit/delete + add/save/reload rows, the big Teleport
-   button, speed row, import/export, and a log pane at the bottom.
+5. The injected and ImGui desktop builds retain the complete native feature
+   set. The WPF/WinForms builds currently include attach/version, category +
+   search, favourite CRUD/save/reload, teleport, four patch toggles, global +
+   movement speed, logs and always-on-top; import/export, Teleport.lua,
+   hotkeys and settings persistence are the next managed-UI batch.
 
 ## Notes / caveats
 
