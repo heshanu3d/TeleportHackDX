@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <PlatformTarget>x86</PlatformTarget>
+    <!--
+      The C ABI DLL (TeleportHackCApi.dll) is a Win32/x86 binary matching
+      the injected DLL; x86 P/Invoke only resolves against x86 native code,
+      so this whole assembly must target x86.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>TeleportHackCore</RootNamespace>
+  </PropertyGroup>
+
+</Project>

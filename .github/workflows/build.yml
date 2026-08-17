@@ -22,6 +22,28 @@ jobs:
       - name: Test (Release)
         run: ctest --test-dir build -C Release --output-on-failure
 
+      - name: Restore .NET dependencies
+        run: dotnet restore csharp/TeleportHack.sln
+
+      - name: Publish WinForms EXE (framework-dependent, x86)
+        # framework-dependent means the ~150 KB EXE relies on the .NET 8
+        # runtime being installed system-wide -- matches the user's stated
+        # policy of small binaries (see chat 2026-08-17).
+        run: >
+          dotnet publish csharp/TeleportHackDesktopWinForms/TeleportHackDesktopWinForms.csproj
+          --configuration Release
+          --runtime win-x86
+          --no-self-contained
+          --output publish/winforms
+
+      - name: Publish WPF EXE (framework-dependent, x86)
+        run: >
+          dotnet publish csharp/TeleportHackDesktopWpf/TeleportHackDesktopWpf.csproj
+          --configuration Release
+          --runtime win-x86
+          --no-self-contained
+          --output publish/wpf
+
       - name: Compute version string
         id: vars
         shell: bash
@@ -63,10 +85,21 @@ jobs:
           Copy-Item build/bin/Release/TeleportHackDesktop.exe dist/
           Copy-Item build/bin/Release/TeleportHackLauncher.exe dist/
           Copy-Item build/bin/Release/TeleportHackCApi.dll dist/
+          # C# UIs. `dotnet publish` output already contains only the runtime
+          # deps we need (framework-dependent), so a flat Copy-Item is fine
+          # -- no runtime installer, and the user's .NET 8 runtime supplies
+          # the base class libraries.
+          Copy-Item publish/winforms/TeleportHackDesktopWinForms.exe dist/
+          Copy-Item publish/winforms/TeleportHackDesktopWinForms.dll dist/
+          Copy-Item publish/winforms/TeleportHackDesktopWinForms.runtimeconfig.json dist/
+          Copy-Item publish/winforms/TeleportHackCore.dll dist/
+          Copy-Item publish/wpf/TeleportHackDesktopWpf.exe dist/
+          Copy-Item publish/wpf/TeleportHackDesktopWpf.dll dist/
+          Copy-Item publish/wpf/TeleportHackDesktopWpf.runtimeconfig.json dist/
           Copy-Item favlist.fav dist/
           Copy-Item hotkey.txt dist/
 
-      - name: Upload DLL + desktop exe + launcher + C ABI + starter data
+      - name: Upload DLL + ImGui/WPF/WinForms EXEs + launcher + C ABI + starter data
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.vars.outputs.artifact_name }}
