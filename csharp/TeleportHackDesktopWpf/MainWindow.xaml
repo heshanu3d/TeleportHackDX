@@ -2,21 +2,17 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="TeleportHack Desktop (WPF / Attach)"
-        Width="820" Height="740" MinWidth="640" MinHeight="600"
+        Width="820" Height="860" MinWidth="640" MinHeight="640"
         WindowStartupLocation="CenterScreen">
+    <!-- Tabs mirror TeleportHackOnVanilla's AutoIt window (and the ImGui
+         build): 坐标点 / 分类导航 / 设置 / 关于; process row, client row and
+         log stay visible. -->
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" MinHeight="180" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="140" />
+            <RowDefinition Height="*" MinHeight="360" />
+            <RowDefinition Height="130" />
         </Grid.RowDefinitions>
 
         <!-- Row 0: process row -->
@@ -29,107 +25,157 @@
                        VerticalAlignment="Center" Margin="12,0,0,0" />
         </StackPanel>
 
-        <!-- Row 1: version + always-on-top -->
+        <!-- Row 1: version + always-on-top + current map -->
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,6">
             <TextBlock Text="client:" VerticalAlignment="Center" Margin="0,0,6,0" />
             <ComboBox x:Name="VersionCombo" Width="140" SelectionChanged="VersionCombo_SelectionChanged" />
             <CheckBox x:Name="AlwaysOnTopCheck" Content="Always on top" VerticalAlignment="Center"
                       Margin="20,0,0,0" Checked="AlwaysOnTopCheck_CheckedChanged"
                       Unchecked="AlwaysOnTopCheck_CheckedChanged" />
+            <TextBlock x:Name="MapLabel" VerticalAlignment="Center" Margin="20,0,0,0" />
         </StackPanel>
 
-        <!-- Row 2: load + category + search -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,6">
-            <Button x:Name="LoadFavouritesButton" Content="Load favlist.fav..." Padding="10,2"
-                    Click="LoadFavouritesButton_Click" />
-            <TextBlock Text="分类:" VerticalAlignment="Center" Margin="12,0,4,0" />
-            <ComboBox x:Name="CategoryCombo" Width="160"
-                      SelectionChanged="CategoryCombo_SelectionChanged" />
-            <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="12,0,4,0" />
-            <TextBox x:Name="SearchBox" Width="220" VerticalAlignment="Center"
-                     TextChanged="SearchBox_TextChanged" />
-        </StackPanel>
+        <TabControl Grid.Row="2" x:Name="MainTabs" Margin="0,0,0,8">
+            <!-- 坐标点 -->
+            <TabItem Header="坐标点">
+                <Grid Margin="6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="2*" MinHeight="140" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" MinHeight="90" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
 
-        <!-- Row 3: favourites list -->
-        <ListView Grid.Row="3" x:Name="FavouritesView" Margin="0,0,0,8"
-                  MouseDoubleClick="FavouritesView_MouseDoubleClick"
-                  SelectionChanged="FavouritesView_SelectionChanged">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="描述" Width="340" DisplayMemberBinding="{Binding Description}" />
-                    <GridViewColumn Header="分类" Width="100" DisplayMemberBinding="{Binding Category}" />
-                    <GridViewColumn Header="x" Width="72" DisplayMemberBinding="{Binding XText}" />
-                    <GridViewColumn Header="y" Width="72" DisplayMemberBinding="{Binding YText}" />
-                    <GridViewColumn Header="z" Width="72" DisplayMemberBinding="{Binding ZText}" />
-                    <GridViewColumn Header="r" Width="60" DisplayMemberBinding="{Binding RText}" />
-                </GridView>
-            </ListView.View>
-        </ListView>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button x:Name="LoadFavouritesButton" Content="Load favlist.fav..." Padding="10,2"
+                                Click="LoadFavouritesButton_Click" />
+                        <TextBlock Text="分类:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                        <ComboBox x:Name="CategoryCombo" Width="160"
+                                  SelectionChanged="CategoryCombo_SelectionChanged" />
+                        <TextBlock Text="搜索:" VerticalAlignment="Center" Margin="12,0,4,0" />
+                        <TextBox x:Name="SearchBox" Width="220" VerticalAlignment="Center"
+                                 TextChanged="SearchBox_TextChanged" />
+                    </StackPanel>
 
-        <!-- Row 4: description input -->
-        <DockPanel Grid.Row="4" Margin="0,0,0,6">
-            <TextBlock Text="描述:" VerticalAlignment="Center" Margin="0,0,6,0" />
-            <TextBox x:Name="DescriptionBox" />
-        </DockPanel>
+                    <ListView Grid.Row="1" x:Name="FavouritesView" Margin="0,0,0,6"
+                              MouseDoubleClick="FavouritesView_MouseDoubleClick"
+                              SelectionChanged="FavouritesView_SelectionChanged">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="描述" Width="320" DisplayMemberBinding="{Binding Description}" />
+                                <GridViewColumn Header="分类" Width="100" DisplayMemberBinding="{Binding Category}" />
+                                <GridViewColumn Header="x" Width="72" DisplayMemberBinding="{Binding XText}" />
+                                <GridViewColumn Header="y" Width="72" DisplayMemberBinding="{Binding YText}" />
+                                <GridViewColumn Header="z" Width="72" DisplayMemberBinding="{Binding ZText}" />
+                                <GridViewColumn Header="r" Width="56" DisplayMemberBinding="{Binding RText}" />
+                                <GridViewColumn Header="map" Width="50" DisplayMemberBinding="{Binding MapText}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
 
-        <!-- Row 5: CRUD -->
-        <StackPanel Grid.Row="5" Orientation="Horizontal" Margin="0,0,0,6">
-            <Button Content="插前" Padding="10,3" Margin="0,0,6,0"
-                    Click="InsertBeforeButton_Click" />
-            <Button Content="插后" Padding="10,3" Margin="0,0,6,0"
-                    Click="InsertAfterButton_Click" />
-            <Button Content="编辑" Padding="10,3" Margin="0,0,6,0"
-                    Click="EditButton_Click" />
-            <Button Content="删除" Padding="10,3" Margin="0,0,6,0"
-                    Click="DeleteButton_Click" />
-            <Button Content="读取到炉石" Padding="10,3" Margin="0,0,6,0"
-                    Click="ReadToLuaButton_Click" />
-            <Button Content="插后 表&amp;炉石" Padding="10,3" Margin="0,0,6,0"
-                    Click="InsertTableLuaButton_Click" />
-            <Button Content="追加" Padding="10,3" Margin="0,0,6,0"
-                    Click="AppendButton_Click" />
-            <Button Content="保存" Padding="10,3" Margin="8,0,6,0"
-                    Click="SaveButton_Click" />
-            <Button Content="重载" Padding="10,3" Margin="0,0,6,0"
-                    Click="ReloadButton_Click" />
-        </StackPanel>
+                    <TextBlock Grid.Row="2" Text="最近使用的坐标（双击再次传送）" Margin="0,0,0,4" />
+                    <ListView Grid.Row="3" x:Name="RecentView" Margin="0,0,0,6"
+                              MouseDoubleClick="RecentView_MouseDoubleClick">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="最近使用" Width="320" DisplayMemberBinding="{Binding Label}" />
+                                <GridViewColumn Header="x" Width="72" DisplayMemberBinding="{Binding XText}" />
+                                <GridViewColumn Header="y" Width="72" DisplayMemberBinding="{Binding YText}" />
+                                <GridViewColumn Header="z" Width="72" DisplayMemberBinding="{Binding ZText}" />
+                                <GridViewColumn Header="map" Width="50" DisplayMemberBinding="{Binding MapText}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
 
-        <!-- Row 6: teleport button -->
-        <Button Grid.Row="6" x:Name="TeleportButton" Content="Teleport" Height="40"
-                Background="#1E50A0" Foreground="White" FontWeight="Bold"
-                Click="TeleportButton_Click" Margin="0,0,0,8" />
+                    <DockPanel Grid.Row="4" Margin="0,0,0,6">
+                        <TextBlock Text="描述:" VerticalAlignment="Center" Margin="0,0,6,0" />
+                        <TextBox x:Name="DescriptionBox" />
+                    </DockPanel>
 
-        <!-- Row 7: toggles -->
-        <StackPanel Grid.Row="7" Orientation="Horizontal" Margin="0,0,0,6">
-            <Button Content="AntiJump" Padding="10,4" Margin="0,0,6,0" Click="AntiJumpButton_Click" />
-            <Button Content="AutoLoot" Padding="10,4" Margin="0,0,6,0" Click="AutoLootButton_Click" />
-            <Button Content="PatchLoot" Padding="10,4" Margin="0,0,6,0" Click="PatchLootButton_Click" />
-            <Button Content="LuaUnlock" Padding="10,4" Margin="0,0,6,0" Click="LuaUnlockButton_Click" />
-        </StackPanel>
+                    <WrapPanel Grid.Row="5" Margin="0,0,0,6">
+                        <Button Content="插前" Padding="10,3" Margin="0,0,6,4" Click="InsertBeforeButton_Click" />
+                        <Button Content="插后" Padding="10,3" Margin="0,0,6,4" Click="InsertAfterButton_Click" />
+                        <Button Content="编辑" Padding="10,3" Margin="0,0,6,4" Click="EditButton_Click" />
+                        <Button Content="删除" Padding="10,3" Margin="0,0,6,4" Click="DeleteButton_Click" />
+                        <Button Content="读取到炉石" Padding="10,3" Margin="0,0,6,4" Click="ReadToLuaButton_Click" />
+                        <Button Content="插后 表&amp;炉石" Padding="10,3" Margin="0,0,6,4" Click="InsertTableLuaButton_Click" />
+                        <Button Content="追加" Padding="10,3" Margin="0,0,6,4" Click="AppendButton_Click" />
+                        <Button Content="保存" Padding="10,3" Margin="8,0,6,4" Click="SaveButton_Click" />
+                        <Button Content="重载" Padding="10,3" Margin="0,0,6,4" Click="ReloadButton_Click" />
+                    </WrapPanel>
 
-        <!-- Row 8: speeds -->
-        <StackPanel Grid.Row="8" Orientation="Horizontal" Margin="0,0,0,6">
-            <TextBlock Text="Global speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
-            <TextBox x:Name="GlobalSpeedInput" Width="70" Text="7" VerticalAlignment="Center" />
-            <Button Content="Apply" Padding="10,2" Margin="6,0,0,0" Click="GlobalSpeedApply_Click" />
-            <TextBlock Text="  Move speed:" VerticalAlignment="Center" Margin="20,0,4,0" />
-            <TextBox x:Name="MoveSpeedInput" Width="70" Text="7" VerticalAlignment="Center" />
-            <Button x:Name="MoveSpeedToggle" Content="Enable" Padding="10,2" Margin="6,0,0,0"
-                    Click="MoveSpeedToggle_Click" />
-        </StackPanel>
+                    <Button Grid.Row="6" x:Name="TeleportButton" Content="Teleport" Height="40"
+                            Background="#1E50A0" Foreground="White" FontWeight="Bold"
+                            Click="TeleportButton_Click" />
+                </Grid>
+            </TabItem>
 
-        <!-- Row 9: import/export -->
-        <StackPanel Grid.Row="9" Orientation="Horizontal" Margin="0,0,0,6">
-            <Button Content="Import Merge..." Padding="10,3" Margin="0,0,6,0"
-                    Click="ImportMergeButton_Click" />
-            <Button Content="Import Replace..." Padding="10,3" Margin="0,0,6,0"
-                    Click="ImportReplaceButton_Click" />
-            <Button Content="Export..." Padding="10,3" Margin="0,0,6,0"
-                    Click="ExportButton_Click" />
-        </StackPanel>
+            <!-- 分类导航: groups/buttons are generated in code-behind -->
+            <TabItem Header="分类导航">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="6">
+                    <StackPanel x:Name="NavigationPanel" />
+                </ScrollViewer>
+            </TabItem>
 
-        <!-- Row 10: log -->
-        <TextBox Grid.Row="10" x:Name="LogBox" IsReadOnly="True"
+            <!-- 设置 -->
+            <TabItem Header="设置">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="功能开关" FontWeight="Bold" Margin="0,0,0,6" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <Button Content="AntiJump" Padding="10,4" Margin="0,0,6,0" Click="AntiJumpButton_Click" />
+                            <Button Content="AutoLoot" Padding="10,4" Margin="0,0,6,0" Click="AutoLootButton_Click" />
+                            <Button Content="PatchLoot" Padding="10,4" Margin="0,0,6,0" Click="PatchLootButton_Click" />
+                            <Button Content="LuaUnlock" Padding="10,4" Margin="0,0,6,0" Click="LuaUnlockButton_Click" />
+                        </StackPanel>
+
+                        <TextBlock Text="速度" FontWeight="Bold" Margin="0,0,0,6" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBlock Text="Global speed:" VerticalAlignment="Center" Margin="0,0,4,0" />
+                            <TextBox x:Name="GlobalSpeedInput" Width="70" Text="7" VerticalAlignment="Center" />
+                            <Button Content="Apply" Padding="10,2" Margin="6,0,0,0" Click="GlobalSpeedApply_Click" />
+                            <TextBlock Text="  Move speed:" VerticalAlignment="Center" Margin="20,0,4,0" />
+                            <TextBox x:Name="MoveSpeedInput" Width="70" Text="7" VerticalAlignment="Center" />
+                            <Button x:Name="MoveSpeedToggle" Content="Enable" Padding="10,2" Margin="6,0,0,0"
+                                    Click="MoveSpeedToggle_Click" />
+                        </StackPanel>
+
+                        <TextBlock Text="WoW PID 查询间隔" FontWeight="Bold" Margin="0,0,0,6" />
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                            <TextBox x:Name="PidPollInput" Width="70" Text="30" VerticalAlignment="Center" />
+                            <TextBlock Text="秒" VerticalAlignment="Center" Margin="6,0,8,0" />
+                            <Button Content="应用" Padding="10,2" Click="PidPollApply_Click" />
+                            <TextBlock Text="只有一个 WoW 进程时自动连接；间隔 1-3600 秒" Foreground="Gray"
+                                       VerticalAlignment="Center" Margin="10,0,0,0" />
+                        </StackPanel>
+
+                        <TextBlock Text="导入 / 导出" FontWeight="Bold" Margin="0,0,0,6" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Import Merge..." Padding="10,3" Margin="0,0,6,0" Click="ImportMergeButton_Click" />
+                            <Button Content="Import Replace..." Padding="10,3" Margin="0,0,6,0" Click="ImportReplaceButton_Click" />
+                            <Button Content="Export..." Padding="10,3" Margin="0,0,6,0" Click="ExportButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- 关于 -->
+            <TabItem Header="关于">
+                <DockPanel Margin="10">
+                    <TextBlock DockPanel.Dock="Top" x:Name="AboutTitle" FontWeight="Bold" FontSize="14" />
+                    <TextBlock DockPanel.Dock="Top" x:Name="AboutAuthor" Margin="0,6,0,10" />
+                    <TextBlock DockPanel.Dock="Top" Text="版本更新日志" Margin="0,0,0,4" />
+                    <TextBox x:Name="ReleaseNotesBox" IsReadOnly="True" TextWrapping="Wrap"
+                             VerticalScrollBarVisibility="Auto" AcceptsReturn="True" />
+                </DockPanel>
+            </TabItem>
+        </TabControl>
+
+        <!-- Row 3: log -->
+        <TextBox Grid.Row="3" x:Name="LogBox" IsReadOnly="True"
                  FontFamily="Consolas" VerticalScrollBarVisibility="Auto"
                  HorizontalScrollBarVisibility="Auto" TextWrapping="NoWrap"
                  AcceptsReturn="True" />

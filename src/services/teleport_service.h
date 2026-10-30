@@ -6,13 +6,16 @@
 // Centralises:
 //  * address resolution (pointer chain for 3.3.5, multi-level offsets for
 //    1.12.x)
-//  * coordinate-axis swapping (1.12.x stores Y/X swapped relative to the UI)
+//  * coordinate-axis swapping (1.12.1 reports Y/X swapped relative to the
+//    UI; 1.12.x writes go through the swapped destination chains)
+//  * facing (3.3.5 pos_r, 1.12.x movement struct) and map ID handling
 //  * step-by-step teleporting (smooth movement)
 #pragma once
 
 #include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 #include "domain/models.h"
 #include "domain/versions.h"
@@ -30,9 +33,19 @@ public:
     TeleportService(MemoryBackend& backend, const GameVersion& version)
         : backend_(backend), version_(version) {}
 
-    // Returns false and sets last_error() on failure.
+    // Returns false and sets last_error() on failure. A successful read also
+    // fills Position::orientation / Position::map_id whenever the client can
+    // report them (missing facing/map is not an error, like the AutoIt
+    // original, which leaves those fields empty).
     bool read_position(Position& out);
+    // Writes x/y/z, plus the facing when `pos.orientation` has a value.
+    // Never changes maps: callers must check can_teleport_to_map() first.
     bool write_position(const Position& pos);
+
+    // TeleportHackOnVanilla's CanTeleportToMap(): points without a map ID
+    // always pass; otherwise the player's current map must be readable and
+    // equal to the destination map. Returns false + last_error() otherwise.
+    bool can_teleport_to_map(const Position& target);
 
     // Walks to `target` in equal increments. `sleeper` defaults to
     // Sleep(); overridable for tests. Returns the number of steps taken
@@ -50,6 +63,9 @@ private:
     std::string last_error_;
 
     bool resolve_player_base(uintptr_t& out);
+    // Follows a vanilla multi-level pointer chain from static_player; a
+    // null intermediate pointer is treated as "player not loaded".
+    bool walk_vanilla_chain(const std::vector<uintptr_t>& offsets, uintptr_t& out);
     bool resolve_vanilla_write_addresses(uintptr_t& ax, uintptr_t& ay, uintptr_t& az);
 };
 
@@ -61,7 +77,9 @@ private:
 // once its time budget has elapsed.
 class TeleportStepSession {
 public:
-    void start(TeleportService& svc, const Position& target, const StepConfig& cfg);
+    // Returns false (see svc.last_error()) when the destination map doesn't
+    // match or the current position can't be read; no step is scheduled.
+    bool start(TeleportService& svc, const Position& target, const StepConfig& cfg);
     // Call every frame (any thread that owns `svc`'s backend). Returns true
     // while the session is still advancing.
     bool tick(TeleportService& svc);

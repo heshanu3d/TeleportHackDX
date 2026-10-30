@@ -25,7 +25,15 @@ struct GameVersion {
     uintptr_t anti_jump = 0;
     uintptr_t jump_gravity = 0;
     uintptr_t player_name = 0;
+    // Current map ID (dword). TeleportHackOnVanilla's $MapID for each entry
+    // script; 0 means "this client can't report its map".
     uintptr_t map_id = 0;
+
+    // Vanilla read order, mirroring TeleportHackOnVanilla's ReadPosition():
+    // 1.12.1 returns (CurrPosY, CurrPosX), 1.12.3 returns (CurrPosX,
+    // CurrPosY). With each profile's curr_pos_* constants this means both
+    // clients report the lower address first as the UI's x.
+    bool curr_pos_swap_xy = false;
 
     // Pointer offsets (3.3.5 only)
     uintptr_t pb_pointer1 = 0;
@@ -42,6 +50,10 @@ struct GameVersion {
     std::vector<uintptr_t> dst_x_offsets;
     std::vector<uintptr_t> dst_y_offsets;
     std::vector<uintptr_t> dst_z_offsets;
+    // Vanilla facing float, relative to the address reached through
+    // dst_z_offsets (TeleportHackOnVanilla ReadFacingVanilla /
+    // WritePositionSingle: $addrZ + 4). 0 = no vanilla facing support.
+    uintptr_t dst_r_offset = 0;
 
     // Code-patch addresses
     uintptr_t autoloot_2 = 0;
@@ -54,6 +66,8 @@ struct GameVersion {
     bool supports_movement_speed() const { return speed_move != 0 && speed_swim != 0; }
     bool supports_anti_jump() const { return anti_jump != 0; }
     bool supports_autoloot() const { return autoloot_2 != 0; }
+    bool supports_orientation() const { return pos_r != 0 || dst_r_offset != 0; }
+    bool supports_map_id() const { return map_id != 0; }
     bool is_pointer_chain() const { return pb_pointer1 != 0 || pb_pointer2 != 0; }
     bool is_vanilla() const { return name.rfind("1.12", 0) == 0; }
 };

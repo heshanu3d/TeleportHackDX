@@ -6,41 +6,47 @@
 namespace th {
 
 bool TeleportService::resolve_player_base(uintptr_t& out) {
-    uintptr_t pb1, pb2;
-    if (!backend_.read_pointer(version_.static_player, pb1)) {
+    uintptr_t pb1 = 0, pb2 = 0;
+    if (!backend_.read_pointer(version_.static_player, pb1) || pb1 == 0) {
         last_error_ = "failed to read static_player pointer";
         return false;
     }
-    if (!backend_.read_pointer(pb1 + version_.pb_pointer1, pb2)) {
+    if (!backend_.read_pointer(pb1 + version_.pb_pointer1, pb2) || pb2 == 0) {
         last_error_ = "failed to read pb_pointer1 chain";
         return false;
     }
-    if (!backend_.read_pointer(pb2 + version_.pb_pointer2, out)) {
+    if (!backend_.read_pointer(pb2 + version_.pb_pointer2, out) || out == 0) {
         last_error_ = "failed to read pb_pointer2 chain";
         return false;
     }
     return true;
 }
 
+bool TeleportService::walk_vanilla_chain(const std::vector<uintptr_t>& offsets,
+                                         uintptr_t& out) {
+    uintptr_t address = version_.static_player;
+    for (uintptr_t offset : offsets) {
+        uintptr_t pointer = 0;
+        if (!backend_.read_pointer(address, pointer) || pointer == 0) return false;
+        address = pointer + offset;
+    }
+    out = address;
+    return true;
+}
+
 bool TeleportService::resolve_vanilla_write_addresses(uintptr_t& ax, uintptr_t& ay,
                                                        uintptr_t& az) {
-    ax = ay = az = version_.static_player;
-    size_t n = version_.dst_x_offsets.size();
-    for (size_t i = 0; i < n; ++i) {
-        uintptr_t px, py, pz;
-        if (!backend_.read_pointer(ax, px) || !backend_.read_pointer(ay, py) ||
-            !backend_.read_pointer(az, pz)) {
-            last_error_ = "failed to walk vanilla offset chain";
-            return false;
-        }
-        ax = px + version_.dst_x_offsets[i];
-        ay = py + version_.dst_y_offsets[i];
-        az = pz + version_.dst_z_offsets[i];
+    if (!walk_vanilla_chain(version_.dst_x_offsets, ax) ||
+        !walk_vanilla_chain(version_.dst_y_offsets, ay) ||
+        !walk_vanilla_chain(version_.dst_z_offsets, az)) {
+        last_error_ = "failed to walk vanilla offset chain";
+        return false;
     }
     return true;
 }
 
 bool TeleportService::read_position(Position& out) {
+    Position result;
     if (version_.is_pointer_chain()) {
         uintptr_t base;
         if (!resolve_player_base(base)) return false;
@@ -51,37 +57,49 @@ bool TeleportService::read_position(Position& out) {
             last_error_ = "failed to read position floats";
             return false;
         }
-        std::optional<double> orientation;
+        result = Position{x, y, z, std::nullopt};
         if (version_.pos_r) {
             float r;
             if (!backend_.read_float(base + version_.pos_r, r)) {
                 last_error_ = "failed to read orientation float";
                 return false;
             }
-            orientation = static_cast<double>(r);
+            result.orientation = static_cast<double>(r);
         }
-        out = Position{x, y, z, orientation};
-        return true;
+    } else {
+        float x, y, z;
+        if (!backend_.read_float(version_.curr_pos_x, x) ||
+            !backend_.read_float(version_.curr_pos_y, y) ||
+            !backend_.read_float(version_.curr_pos_z, z)) {
+            last_error_ = "failed to read position floats";
+            return false;
+        }
+        // Normalise to the logical (x, y, z) the favlist/UI use; see
+        // GameVersion::curr_pos_swap_xy for the per-client order.
+        if (version_.curr_pos_swap_xy) {
+            result = Position{static_cast<double>(y), static_cast<double>(x),
+                              static_cast<double>(z), std::nullopt};
+        } else {
+            result = Position{static_cast<double>(x), static_cast<double>(y),
+                              static_cast<double>(z), std::nullopt};
+        }
+        // 1.12.x facing lives in the movement struct reached through the
+        // destination Z chain. An unreadable chain (character not fully
+        // loaded) just leaves the facing unset, like ReadFacingVanilla.
+        uintptr_t az = 0;
+        float r = 0.0f;
+        if (version_.dst_r_offset != 0 && walk_vanilla_chain(version_.dst_z_offsets, az) &&
+            backend_.read_float(az + version_.dst_r_offset, r) && std::isfinite(r)) {
+            result.orientation = static_cast<double>(r);
+        }
     }
 
-    float x, y, z;
-    if (!backend_.read_float(version_.curr_pos_x, x) ||
-        !backend_.read_float(version_.curr_pos_y, y) ||
-        !backend_.read_float(version_.curr_pos_z, z)) {
-        last_error_ = "failed to read position floats";
-        return false;
+    // The map is informational for reads: unreadable -> unset, not an error.
+    uint32_t map = 0;
+    if (version_.map_id != 0 && backend_.read_uint32(version_.map_id, map)) {
+        result.map_id = map;
     }
-    // 1.12.x engine reports Y as X internally; normalise to logical (x,y,z).
-    // Neither 1.12 profile has a usable orientation offset (pos_r == 0),
-    // so orientation is always left unset here -- matches the AutoIt
-    // original, which always returns an empty r for these versions.
-    if (version_.is_vanilla()) {
-        out = Position{static_cast<double>(y), static_cast<double>(x), static_cast<double>(z),
-                       std::nullopt};
-    } else {
-        out = Position{static_cast<double>(x), static_cast<double>(y), static_cast<double>(z),
-                       std::nullopt};
-    }
+    out = result;
     return true;
 }
 
@@ -112,14 +130,38 @@ bool TeleportService::write_position(const Position& pos) {
     bool ok = backend_.write_float(ax, static_cast<float>(pos.y)) &&
               backend_.write_float(ay, static_cast<float>(pos.x)) &&
               backend_.write_float(az, static_cast<float>(pos.z));
-    if (!ok) last_error_ = "failed to write position floats";
+    // Facing sits right after the destination Z float ($addrZ + 4); only
+    // written when requested, a missing value preserves the current facing.
+    if (ok && version_.dst_r_offset != 0 && pos.orientation.has_value()) {
+        ok = backend_.write_float(az + version_.dst_r_offset,
+                                  static_cast<float>(*pos.orientation));
+    }
+    if (!ok) last_error_ = "failed to write position/orientation floats";
     return ok;
+}
+
+bool TeleportService::can_teleport_to_map(const Position& target) {
+    if (!target.map_id.has_value()) return true;
+    uint32_t current = 0;
+    if (!read_map_id(current)) {
+        last_error_ = "cannot verify destination map " + std::to_string(*target.map_id) +
+                      " (" + last_error_ + "); teleport cancelled";
+        return false;
+    }
+    if (current != *target.map_id) {
+        last_error_ = "cross-map teleport is not supported: current map " +
+                      std::to_string(current) + " -> destination map " +
+                      std::to_string(*target.map_id);
+        return false;
+    }
+    return true;
 }
 
 bool TeleportService::teleport_step(const Position& target, const StepConfig& cfg,
                                      int& steps_out,
                                      const std::function<void(double)>& sleeper) {
     steps_out = 0;
+    if (!can_teleport_to_map(target)) return false;
     Position current;
     if (!read_position(current)) return false;
 
@@ -159,13 +201,12 @@ bool TeleportService::teleport_step(const Position& target, const StepConfig& cf
 // ---------------------------------------------------------------------
 // TeleportStepSession
 
-void TeleportStepSession::start(TeleportService& svc, const Position& target,
+bool TeleportStepSession::start(TeleportService& svc, const Position& target,
                                  const StepConfig& cfg) {
+    active_ = false;
+    if (!svc.can_teleport_to_map(target)) return false;
     Position current;
-    if (!svc.read_position(current)) {
-        active_ = false;
-        return;
-    }
+    if (!svc.read_position(current)) return false;
     double distance = current.distance_to(target);
     double per_step = cfg.distance_per_step > 1e-6 ? cfg.distance_per_step : 1e-6;
     int steps = static_cast<int>(std::floor(distance / per_step)) + 1;
@@ -185,6 +226,7 @@ void TeleportStepSession::start(TeleportService& svc, const Position& target,
     LARGE_INTEGER qpc;
     QueryPerformanceCounter(&qpc);
     last_tick_qpc_ = qpc.QuadPart;
+    return true;
 }
 
 bool TeleportStepSession::tick(TeleportService& svc) {

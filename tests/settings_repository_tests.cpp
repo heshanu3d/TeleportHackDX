@@ -1,6 +1,7 @@
 // settings.json compatibility tests, including separate DLL/desktop ImGui
 // layout snapshots stored as escaped multiline JSON strings.
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -51,6 +52,7 @@ int main() {
     settings.wpf_window_x = -900.5;
     settings.wpf_window_saved = true;
     settings.wpf_always_on_top = true;
+    settings.pid_poll_seconds = 45;
     settings.dll_imgui_layout = dll_layout;
     settings.desktop_imgui_layout = desktop_layout;
 
@@ -58,6 +60,7 @@ int main() {
     check(repo.save(settings, error), "settings with two ImGui layouts save");
 
     th::Settings loaded = repo.load();
+    check(loaded.pid_poll_seconds == 45, "WoW PID poll interval survives save and reload");
     check(loaded.dll_imgui_layout == dll_layout,
           "DLL ImGui layout survives JSON escaping and reload");
     check(loaded.desktop_imgui_layout == desktop_layout,
@@ -84,6 +87,17 @@ int main() {
           "updated DLL layout is persisted");
     check(reloaded.desktop_imgui_layout == desktop_layout,
           "updating DLL layout preserves desktop layout");
+
+    // Out-of-range intervals (hand-edited JSON, older C# builds) fall back
+    // to the 30 s default like ParseWowPidPollSeconds().
+    {
+        const std::filesystem::path bad = dir / "bad-poll.json";
+        std::ofstream out(bad, std::ios::binary);
+        out << "{\n  \"pid_poll_seconds\": 0\n}\n";
+    }
+    check(th::SettingsRepository(dir / "bad-poll.json").load().pid_poll_seconds == 30,
+          "invalid PID poll interval falls back to 30 s");
+    check(th::Settings{}.pid_poll_seconds == 30, "default PID poll interval is 30 s");
 
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;

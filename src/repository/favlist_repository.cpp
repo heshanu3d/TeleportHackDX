@@ -59,6 +59,20 @@ bool parse_double(const std::string& s, double& out) {
     }
 }
 
+// Map IDs are unsigned dwords written by TeleportHackOnVanilla's ReadMap();
+// anything else (sign, spaces, fractions, overflow) is malformed.
+bool parse_map_id(const std::string& s, uint32_t& out) {
+    if (s.empty() || s.size() > 10) return false;
+    uint64_t value = 0;
+    for (char c : s) {
+        if (c < '0' || c > '9') return false;
+        value = value * 10 + static_cast<uint64_t>(c - '0');
+    }
+    if (value > 0xFFFFFFFFull) return false;
+    out = static_cast<uint32_t>(value);
+    return true;
+}
+
 } // namespace
 
 bool FavlistRepository::load(std::vector<TeleportPoint>& out, std::string& error) const {
@@ -76,25 +90,37 @@ bool FavlistRepository::load(std::vector<TeleportPoint>& out, std::string& error
 
     constexpr size_t old_column_count = 4; // desc, x, y, z
     constexpr size_t new_column_count = 5; // desc, x, y, z, orientation
+    constexpr size_t map_column_count = 6; // desc, x, y, z, orientation, map id
     size_t i = 0, n = lines.size();
     while (i < n) {
         std::vector<std::string> parts = split(lines[i], sep_);
-        if (parts.size() == old_column_count || parts.size() == new_column_count) {
+        if (parts.size() >= old_column_count && parts.size() <= map_column_count) {
             double x, y, z;
             bool coords_ok = parse_double(parts[1], x) && parse_double(parts[2], y) &&
                               parse_double(parts[3], z);
-            bool orientation_ok = true;
+            bool optional_ok = true;
             std::optional<double> orientation;
-            if (coords_ok && parts.size() == new_column_count && !parts[4].empty()) {
+            if (coords_ok && parts.size() >= new_column_count && !parts[4].empty()) {
                 double r;
                 if (parse_double(parts[4], r)) {
                     orientation = r;
                 } else {
-                    orientation_ok = false; // malformed orientation: skip like a bad number
+                    optional_ok = false; // malformed orientation: skip like a bad number
                 }
             }
-            if (coords_ok && orientation_ok) {
-                out.push_back(TeleportPoint{parts[0], Position{x, y, z, orientation}});
+            std::optional<uint32_t> map_id;
+            if (coords_ok && parts.size() == map_column_count && !parts[5].empty()) {
+                uint32_t map;
+                if (parse_map_id(parts[5], map)) {
+                    map_id = map;
+                } else {
+                    optional_ok = false; // malformed map id: skip the record too
+                }
+            }
+            if (coords_ok && optional_ok) {
+                Position pos{x, y, z, orientation};
+                pos.map_id = map_id;
+                out.push_back(TeleportPoint{parts[0], pos});
             }
             ++i;
         } else if (i + old_column_count - 1 < n) {
@@ -150,6 +176,11 @@ int FavlistRepository::save(const std::vector<TeleportPoint>& points, std::strin
            << format_float(pt.position.y) << sep_ << format_float(pt.position.z) << sep_;
         if (pt.position.orientation.has_value()) {
             fh << format_float(*pt.position.orientation);
+        }
+        // The 6th map field is only emitted when known, so files without
+        // map IDs keep their canonical 5-field lines byte for byte.
+        if (pt.position.map_id.has_value()) {
+            fh << sep_ << *pt.position.map_id;
         }
         fh << "\n";
         ++count;

@@ -29,12 +29,33 @@ layout rationale this is based on):
 
 - Favourites list (`favlist.fav`), category filter (derived from the
   `desc` prefix before `-`), description search, insert/append/edit/delete/add
-- Optional per-point orientation/facing (5th `favlist.fav` field, radians;
-  3.3.5 only). An empty field means "preserve current facing" -- distinct
-  from an explicit `0`. Old 4-field files keep loading unchanged; `save()`
-  always writes the canonical 5-field form. Step-teleport applies the
-  target facing once, on the final step, rather than every intermediate
-  step.
+- Tabbed layout matching TeleportHackOnVanilla's AutoIt window: **坐标点**
+  (list, 最近使用的坐标, CRUD, Teleport), **分类导航** (categories grouped
+  into 杂项 / 东部王国 / 卡利姆多 / 燃烧的远征 / 巫妖王之怒, three per row;
+  clicking one jumps back to 坐标点), **设置** (step teleport, patch
+  toggles, speeds, PID polling, paths, import/export) and **关于**
+  (version, author, release notes). The log stays visible below the tabs.
+- Optional per-point orientation/facing (5th `favlist.fav` field, radians)
+  on all three clients: 3.3.5 uses `player_base + 0x7A8`; 1.12.1/1.12.3 use
+  the float right after the destination Z of the movement struct
+  (`dst_z_offsets` chain + 4, TeleportHackOnVanilla `ReadFacingVanilla`).
+  An empty field means "preserve current facing" -- distinct from an
+  explicit `0`. Step-teleport applies the target facing once, on the final
+  step, rather than every intermediate step.
+- Optional per-point map ID (6th `favlist.fav` field:
+  `描述#x#y#z#r#mapid`), read from each client's `MapID` dword (1.12.1
+  `0x00B4E378`, 1.12.3 `0x00B52A20`, 3.3.5 `0x00AB63BC`). Add/insert/edit
+  record the current map automatically. Teleporting to a point whose map
+  differs from the current one -- or whose map can't be verified -- is
+  cancelled ("cross-map teleport is not supported"), for list, hotkey and
+  recent teleports alike. Points without a map ID are never checked. Old
+  4/5-field files keep loading unchanged; `save()` writes the 5-field form
+  and appends the map field only for points that have one.
+- 1.12.3 reads the current x/y in the same order as the AutoIt original
+  (no swap; 1.12.1 still swaps), so positions recorded with DX on 1.12.3
+  teleport back to the same spot.
+- 最近使用的坐标: the last 20 teleport destinations (deduplicated by
+  x/y/z + map, newest first); double-click to teleport there again.
 - Instant teleport + smooth "step" teleport (non-blocking; advances once
   per rendered frame instead of `Sleep()`-blocking the game thread)
 - Hotkey bindings (`hotkey.txt`, `^`/`!`/`+` modifier syntax) via Win32
@@ -46,7 +67,7 @@ layout rationale this is based on):
   toggleable movement-speed port from The Hitchhiker's Hack that continuously
   writes run (`0x81C`) and swim (`0x824`) speed and restores `7.0`/`4.7` when
   disabled. Both injected and desktop modes share this feature.
-- Import / merge (dedup by description+x+y+z) / replace / export favourites
+- Import / merge (dedup by description + x/y/z + facing + map) / replace / export favourites
 - Shared application settings persisted to `settings.json` next to the
   DLL/EXE. The same file holds separate DLL and desktop ImGui layout
   snapshots, including favourites-table column widths, so the modes don't
@@ -54,14 +75,20 @@ layout rationale this is based on):
 - Chinese IME input in the injected ImGui text fields, with IME context and
   message ownership isolated from WoW's own chat input
 - Process picker ("WoW 进程": list/refresh/attach) -- desktop build only,
-  since the DLL build always operates on its own host process. The desktop
-  toolbar also has a persisted `Always on top` toggle for its native window.
+  since the DLL build always operates on its own host process. When exactly
+  one `WoW.exe` is running the desktop UIs attach to it automatically (at
+  startup, on Refresh, and every `pid_poll_seconds`, 1-3600 s, default 30,
+  configurable on the 设置 tab), so a restarted client is picked up again.
+  The desktop toolbar also has a persisted `Always on top` toggle for its
+  native window.
 - Two additional .NET 8/x86 desktop UIs:
   `TeleportHackDesktopWinForms.exe` and `TeleportHackDesktopWpf.exe`. Both
   call the same C++ business services through `TeleportHackCApi.dll` and
-  provide attach/version selection, category/search, favourite CRUD +
-  save/reload/import/export, Teleport.lua update/combined insert, global
-  hotkeys, teleport, four patch toggles, global/movement speed, logs,
+  provide the same tabs (坐标点 / 分类导航 / 设置 / 关于), attach/version
+  selection with single-process auto-attach + PID polling, category/search,
+  favourite CRUD (with facing + map) + save/reload/import/export,
+  最近使用的坐标, the cross-map guard, Teleport.lua update/combined insert,
+  global hotkeys, four patch toggles, global/movement speed, logs,
   always-on-top, and shared settings.json persistence. They require the
   .NET 8 x86 Desktop Runtime.
 - `TeleportHackLauncher.exe`: reads `wow_exe_path` from the shared
@@ -79,7 +106,7 @@ layout rationale this is based on):
   single-line edit, not a full regeneration, so everything else in that
   file (menu code, other entries, mapId) is left byte-for-byte untouched
   (including its UTF-8 BOM and CRLF line endings). Configure the path via
-  Settings ("Teleport.lua path"); empty by default since most setups
+  the 设置 tab ("Teleport.lua path"); empty by default since most setups
   don't have this file. See `src/repository/teleport_lua_repository.h`.
 - "插后 表&炉石" button: performs the normal insert-after operation and
   inserts the same new row immediately after the selected entry in
@@ -116,6 +143,9 @@ vendor/
   minhook/                vendored MinHook (32-bit subset, TeleportHackDX.dll only)
 tests/
   orientation_tests.cpp           favlist.fav format + 3.3.5 pos_r compatibility tests (CTest)
+  sync_tests.cpp                  TeleportHackOnVanilla sync: map field, 1.12.x facing/read order,
+                                  cross-map guard, recent teleports, navigation groups (CTest)
+  capi_tests.cpp                  C ABI smoke tests (CTest)
   teleport_lua_repository_tests.cpp  Teleport.lua single-entry edit tests, incl. against the real file (CTest)
   settings_repository_tests.cpp   shared settings + separate DLL/desktop ImGui layout tests (CTest)
 csharp/
@@ -163,16 +193,17 @@ push.
    `.deps.json`/`.runtimeconfig.json` files, and the installed .NET 8 x86
    Desktop Runtime. The native binaries resolve data files from their own
    directory rather than from `WoW.exe`'s working directory.
-2. For one-click launch, set `wow_exe_path` in `settings.json` (or through
-   the Settings window), then double-click `TeleportHackLauncher.exe`.
+2. For one-click launch, set `wow_exe_path` in `settings.json` (or on the
+   设置 tab), then double-click `TeleportHackLauncher.exe`.
    It starts WoW and injects the sibling DLL automatically.
 3. **Manual injected mode**: start WoW, then inject `TeleportHackDX.dll` with your preferred
    injector (Cheat Engine, Extreme Injector, Xenos, ...) -- see
    `使用说明.html` for a step-by-step Cheat Engine walkthrough. **Win +
    Insert** toggles the overlay.
    **Desktop mode**: run `TeleportHackDesktop.exe` (ImGui),
-   `TeleportHackDesktopWinForms.exe`, or `TeleportHackDesktopWpf.exe`; pick
-   the running `WoW.exe` and click Attach.
+   `TeleportHackDesktopWinForms.exe`, or `TeleportHackDesktopWpf.exe`. With
+   a single running `WoW.exe` they attach automatically; otherwise pick the
+   process and click Attach.
 4. Pick your client version from the dropdown at the top the first time
    (or set `default_version` in `settings.json`).
 5. WPF and WinForms load the shared favlist/hotkey/Teleport.lua paths and
@@ -191,6 +222,8 @@ push.
   `feature_toggles.py`; if you're on a differently-patched client build
   the byte-patch toggles may report "unknown byte state" and refuse to
   act rather than write garbage.
+- The version shown on the 关于 tab is the CI artifact version
+  (`-DTH_BUILD_VERSION=...`, e.g. `0.1.3rc`); local builds show `dev`.
 - Build-verified: CI builds both targets on `windows-latest` with
   `/W4 /permissive-` and zero warnings from our own code, and runs the
   `tests/` suite via CTest. The DLL has also

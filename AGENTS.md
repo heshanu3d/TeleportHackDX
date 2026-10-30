@@ -81,7 +81,23 @@ https://github.com/AzDeltaQQ/WoW3.3.5aDirectXHookWithGui。
    CI 才是最终的事实依据。** 每次改动都要真正推送并轮询 Actions 跑完，才能算这个
    改动完成，就算改动"明显正确"也不要跳过这一步。
 3. 相关工作都在 `/tmp/opencode/<scratch-dir>` 里做，做完就删掉；
-   绝不要把桩文件留在正式仓库里。
+   绝不要把桩文件留在正式仓库里。（`/tmp/opencode` 会被不定期清空，桩文件需按需重建：
+   `Windows.h`/`TlHelp32.h`/`commdlg.h` 带 inline 空实现即可让 th_business 及 tests 在 Linux 上
+   链接运行，`cmake -S . -B /tmp/opencode/<dir> -DCMAKE_CXX_FLAGS="-I<shim> -Wno-missing-field-initializers"`
+   后只构建 `sync_tests orientation_tests teleport_lua_tests capi_tests`。）
+4. **C# 也能在本机真编译**：`curl -sSL https://dot.net/v1/dotnet-install.sh` →
+   `./dotnet-install.sh --channel 8.0 --install-dir /tmp/opencode/dotnet --no-path`，把 `csharp/`
+   复制到临时目录后 `dotnet build <csproj> -c Release -p:EnableWindowsTargeting=true`，
+   TeleportHackCore / WinForms / WPF（含 XAML 编译）都能在 Linux 上编译并报出真实警告/错误。
+   运行时 P/Invoke 验证：把 `src/capi/api.cpp` + 全部 th_business 源码用 g++ `-shared -fPIC`
+   编成 `libTeleportHackCApi.so`，再写一个引用 TeleportHackCore 的临时 net8.0-windows 控制台程序，
+   用 `-p:PlatformTarget=AnyCPU` 构建（x86 程序集无法被 64 位 dotnet 加载），
+   `LD_LIBRARY_PATH=. dotnet <app>.dll` 运行。
+5. **ImGui App 无头冒烟**：临时 main 先 include 所有标准头和 `Windows.h` 桩，再
+   `#define private public` 引入 `ui/app.h`，自己提供 `resolve_path`/`dll_directory`
+   和 `InProcessBackend` 方法的空实现，链接 app.cpp + hotkey_service + hotkey_config_repository
+   + vendored imgui + libth_business.a；`GetTexDataAsRGBA32` 后逐帧调用 `App::render()` 和各
+   `render_*_tab()`（未定义 NDEBUG，IM_ASSERT 生效），能抓到 Push/Pop、Begin/End 配对错误。
 
 ## 架构（src/ 目录结构）
 
@@ -98,20 +114,23 @@ src/
   domain/                        Position/TeleportPoint/Category/
                                  HotkeyBinding + 各版本 GameVersion 内存偏移表
                                  （1.12.1/1.12.3/3.3.5），逐字从
-                                 TeleportHackOnVanilla/win/.../versions.py 移植
+                                 TeleportHackOnVanilla/win/.../versions.py 移植；
+                                 category_groups（分类导航 5 组）、app_info
+                                 （关于页版本号/作者/更新日志）
   memory/                        MemoryBackend 接口；InProcessBackend
                                  （SEH 保护的直接指针解引用，DLL 用）和
                                  OutOfProcessBackend（OpenProcess +
                                  ReadProcessMemory/WriteProcessMemory，
                                  桌面 attach 模式用）
   services/                      TeleportService（指针链解析、坐标轴交换的
-                                 各种奇怪规则、分步传送 —— 既有阻塞版本，
+                                 各种奇怪规则、朝向/地图读写、跨地图拦截、分步传送 —— 既有阻塞版本，
                                  也有每帧驱动一次的非阻塞
   TeleportStepSession），FeatureService
                                  （AntiJump/AutoLoot/PatchLoot/LuaUnlock
                                  字节补丁开关 + 3.3.5 全局/移动速度外挂），
                                  FavouritesService + FavouritesPorter
                                  （增删改查/导入导出/合并去重），
+                                 RecentTeleports（最近使用的坐标），
                                  HotkeyService（Win32 的 RegisterHotKey，
                                  不是后台线程）
   repository/                    favlist.fav / hotkey.txt / settings.json /
@@ -137,7 +156,9 @@ x86 EXE，通过共享 `TeleportHackCore.dll` P/Invoke C ABI DLL。
 
 C# 两套 UI 已接入进程 Attach、版本、分类/搜索、收藏点 CRUD/保存/重载/导入导出、
 Teleport.lua 动态更新与组合插入、Win32 `RegisterHotKey`、四个补丁、全局/移动速度、
-置顶和 settings.json 持久化。Managed settings 使用 JsonObject 保留未知 native 字段；native
+置顶和 settings.json 持久化，以及与 ImGui 相同的 坐标点/分类导航/设置/关于 页签、
+最近使用的坐标、朝向+地图 ID、跨地图拦截、单进程自动附加 + PID 轮询（C# 不支持分步传送）。
+Managed settings 使用 JsonObject 保留未知 native 字段；native
 Settings 结构也显式保留 `winforms_*` / `wpf_*` 窗口字段，避免不同 UI 互相删除状态。
 
 ## 已经落实的一些不明显的设计要点
@@ -310,8 +331,72 @@ gossip 菜单），它的坐标存放在一张
 临时验证方式来做：把真实文件复制到一个临时路径，用完全相同的现有数值
 调用一次 `update_entry()`，然后和原文件做逐字节 diff。
 
+## ✅ 已完成 —— 同步 TeleportHackOnVanilla `a3a8e62..309516d`（地图/朝向/导航/最近/设置/关于）
+
+同步来源提交：`12fde2e` OnTop、`f34e471` 分组分类导航、`d25a20f` 设置/关于页 + PID 轮询 + 最近传送、
+`5df337f` 重载保持滚动、`d462c4c` 收藏坐标地图与朝向字段、`309516d` 适配 1.12.1 地图和朝向。
+（`7d48cf5`/`5df337f` 里的 AutoIt 构建脚本、`login`/`厄运`/`sync-tp`、3.3.5 `home` 按钮不在范围内。）
+
+- **地图 ID**：`Position::map_id`（`std::optional<uint32_t>`，缺省≠0，0=东部王国）。
+  favlist 第 6 字段 `描述#x#y#z#r#mapid`：读取接受 4–6 字段；mapid 只接受纯数字且 ≤ UINT32_MAX，
+  否则整行跳过；`save()` 无地图时仍写 5 字段（旧文件逐字节不变），有地图才追加第 6 字段
+  （AutoIt 的 Save 总写 6 字段、Python 写最少字段，三者互相兼容）。去重签名含 orientation + map_id。
+  MapID 地址：1.12.1 `0x00B4E378`、1.12.3 `0x00B52A20`、3.3.5 `0xAB63BC`；`read_position()`
+  读不到地图/朝向时字段留空而非报错（与 AutoIt 一致），3.3.5 的 pos_r 读取失败仍是错误（保持原行为）。
+- **1.12.x 朝向**：`GameVersion::dst_r_offset = 4` —— 沿 `dst_z_offsets` 链得到目标 Z 地址后 +4
+  （AutoIt `ReadFacingVanilla` / `WritePositionSingle` 的 `$addrZ + 4`）；只在有朝向时写；
+  链上任一指针为 0 视为玩家未加载（读→朝向留空，写→失败）。3.3.5 `resolve_player_base` 也加了空指针检查。
+- **1.12.3 读坐标顺序修正**：AutoIt `ReadPosition()` 只在 1.12.1 交换 CurrX/CurrY，1.12.3 不交换；
+  DX/Python 之前对两个 1.12 都交换，导致 1.12.3 上用 DX 记录的点 x/y 颠倒、分步传送起点错误。
+  现由 `GameVersion::curr_pos_swap_xy`（1.12.1=true，1.12.3=false）控制；两版本实际都是"低地址=UI x"。
+  写入路径不变（仍为 `ax←y, ay←x`，与 AutoIt `WritePosition($y,$x,...)` 一致）。这很可能就是用户早先
+  反馈的"读坐标对、写坐标反"（若当时在 1.12.3 上）。
+- **跨地图拦截**：`TeleportService::can_teleport_to_map()`（AutoIt `CanTeleportToMap`）：无 map 放行；
+  当前地图读不到 → 取消（"cannot verify destination map"）；不一致 → 取消（"cross-map teleport is not
+  supported"）。在 `App::do_teleport`、`TeleportStepSession::start`（现返回 bool）、阻塞版 `teleport_step`、
+  C ABI `th_session_teleport_ex`/`th_recent_teleport` 中调用；旧 `th_session_teleport` 不检查。
+- **最近使用的坐标**：`services/recent_teleports.{h,cpp}`，最多 20 条、最新在前，按 x/y/z+map 去重
+  （忽略 label/朝向），空 label→"坐标点"；仅内存。成功传送（列表/按钮/热键/最近列表）后记录。
+  `HotkeyService::resolve(id, pos, &label)` 提供热键 label。
+- **分类导航**：`domain/category_groups.{h,cpp}` 逐字复制 ui.au3（d25a20f 版）`CategoryGridGroup` 的
+  4 组名单；其余（主城、副本60、其他、多兰纳尔…）归 0 组"杂项"，且 0 组以"所有"开头；组内保持 favlist
+  首次出现顺序，空组也保留标题。
+- **UI（ImGui 与 C# 一致）**：页签 坐标点（分类/搜索、表格新增 map 列、最近列表、描述、CRUD、Teleport）/
+  分类导航（3 列，点击切回坐标点）/ 设置（step 及参数、四个补丁、速度、PID 查询间隔[仅桌面]、路径、
+  导入导出；ImGui 原 Settings 弹窗已并入）/ 关于（版本、作者、更新日志）；日志在页签下方常驻。
+  桌面（Attach）模式：启动、Refresh、以及每 `pid_poll_seconds`（settings.json，1–3600，默认 30）
+  检查 WoW.exe，恰好一个且 PID 与当前附加不同则自动附加（不重载 favlist，避免丢未保存修改）。
+  ImGui 表格切换到带 PushID 的 Selectable（重名描述不再冲突）；C# 重载/编辑后保持列表滚动位置。
+  默认窗口：注入版 480×860（FirstUseEver），桌面版 settings 默认 500×900。
+- **关于页版本号**：`domain/app_info.cpp` 含 UTF-8 中文字面量，MSVC 下单独加 `/utf-8`；
+  版本来自 `-DTH_BUILD_VERSION=`（CI 把 "Compute version string" 提前到 Configure 之前，
+  例如 `0.1.3rc`），本地构建为 `dev`。更新日志写在 `release_notes()` 里，后续发版需手动补充。
+- **C ABI 只追加**：`th_session_read_position_ex`、`th_session_read_map_id`、`th_session_teleport_ex`、
+  `th_favourites_get_map_id`、`th_favourites_{insert,append,replace}_in_category_ex`、
+  `th_recent_{count,get_label,get_position,teleport}`、`th_category_group_{count,name,of}`、
+  `th_build_version`、`th_app_author`、`th_release_notes`（共 55 个导出，C# 侧名称/参数个数已脚本核对）。
+- **已知外部限制**：工作区里的 `gen_fav.py` 只接受 4/5 字段（去掉尾部空字段后），带 mapid 的 6 字段行
+  会被它跳过；它不在本仓库，未改动，已在使用说明里提示。
+- **测试**：新增 `tests/sync_tests.cpp`（CTest `vanilla_sync`）；`capi_tests` 覆盖新导出；
+  `settings_repository_tests` 覆盖 `pid_poll_seconds`；`orientation_tests` 的 1.12.x 用例改为
+  "无移动链时朝向留空"。本地另做了：真实 1662 行 favlist 往返（无 map 字段被写出）、
+  `curr_pos_swap_xy` 变异测试（改错即失败）、ImGui 无头冒烟（四个页签 + do_teleport）、
+  C# 三个工程 Linux 真编译 0 警告、TeleportHackCore 运行时 P/Invoke 冒烟。
+
 ## 用户提出但尚未处理的请求
 
-- 截至本文撰写时没有遗留事项。用户之前另外提过想实际重新测试一下窗口
+- 同步改动需要用户在真实客户端上实测：1.12.1/1.12.3 的朝向读写与地图 ID（地址来自 AutoIt，DX 未实机验证）、
+  1.12.3 读坐标顺序修正、跨地图拦截、桌面版单进程自动附加。
+- 用户之前另外提过想实际重新测试一下窗口
   位置/大小的持久化效果（之前只是靠推理 + 桩文件检查 + CI 绿色来验证的，
   从来没有真人上手确认过）—— 如果之后再提起，值得回头补上这一步。
+
+📌 Snapshot [2026-10-31 01:00:00]
+- 本轮任务：把 TeleportHackOnVanilla `a3a8e62..309516d` 的改动同步到 DX 并适配 1.12.1/1.12.3/3.3.5；
+  已完成业务层（map_id、1.12.x 朝向 Z+4、1.12.3 读序修正、跨地图拦截、最近 20 条、分类分组、关于/版本、
+  pid_poll_seconds）、C ABI 追加 16 个导出、ImGui 四页签、WinForms/WPF 四页签 + PID 轮询 + 保持滚动。
+- 之前已完成并获用户确认：ImGui 布局存 settings.json、Launcher、Teleport.lua 动态锚点、IME 隔离、
+  C ABI + WinForms/WPF（013d2c4，CI #33 绿）。
+- 验证新手段：本机可装 .NET 8 SDK 到 /tmp/opencode/dotnet，用 EnableWindowsTargeting 真编译 C#；
+  `ask_user` 在本会话不可用，用 `question` 工具代替。
+- 待办：推送后确认 Windows CI；请用户实机验证 1.12.x 地图/朝向与自动附加。

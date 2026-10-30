@@ -50,16 +50,29 @@ target_include_directories(imgui PUBLIC vendor/imgui vendor/imgui/backends)
 set(BUSINESS_SOURCES
     src/domain/models.cpp
     src/domain/versions.cpp
+    src/domain/category_groups.cpp
+    src/domain/app_info.cpp
     src/memory/outofprocess_backend.cpp
     src/services/teleport_service.cpp
     src/services/feature_service.cpp
     src/services/favourites_service.cpp
     src/services/favourites_porter.cpp
+    src/services/recent_teleports.cpp
     src/repository/favlist_repository.cpp
     src/repository/settings_repository.cpp
     src/repository/teleport_lua_repository.cpp
     src/util/process_list.cpp
 )
+
+# Version string shown on every UI's "关于" tab. CI passes the computed
+# artifact version (e.g. 0.1.3rc); local builds just say "dev".
+set(TH_BUILD_VERSION "dev" CACHE STRING "Version shown on the About tab")
+set_source_files_properties(src/domain/app_info.cpp PROPERTIES
+    COMPILE_DEFINITIONS "TH_BUILD_VERSION=\"${TH_BUILD_VERSION}\"")
+if(MSVC)
+    # app_info.cpp holds UTF-8 Chinese release notes as plain literals.
+    set_source_files_properties(src/domain/app_info.cpp PROPERTIES COMPILE_OPTIONS "/utf-8")
+endif()
 
 add_library(th_business STATIC ${BUSINESS_SOURCES})
 target_include_directories(th_business PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -156,6 +169,17 @@ if(MSVC)
     target_compile_options(teleport_lua_tests PRIVATE /W4 /permissive-)
 endif()
 add_test(NAME teleport_lua_repository COMMAND teleport_lua_tests)
+
+# TeleportHackOnVanilla d462c4c..309516d sync: map IDs, 1.12.x facing and
+# read order, cross-map guard, recent teleports, category navigation groups.
+add_executable(sync_tests
+    tests/sync_tests.cpp
+)
+target_link_libraries(sync_tests PRIVATE th_business)
+if(MSVC)
+    target_compile_options(sync_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME vanilla_sync COMMAND sync_tests)
 
 add_executable(settings_repository_tests
     tests/settings_repository_tests.cpp

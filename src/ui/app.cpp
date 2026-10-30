@@ -9,6 +9,8 @@
 #include <utility>
 
 #include "imgui.h"
+#include "domain/app_info.h"
+#include "domain/category_groups.h"
 #include "memory/outofprocess_backend.h"
 #include "repository/hotkey_config_repository.h"
 #include "repository/teleport_lua_repository.h"
@@ -29,6 +31,22 @@ std::string to_lower(const std::string& s) {
 bool contains_ci(const std::string& haystack, const std::string& needle) {
     if (needle.empty()) return true;
     return to_lower(haystack).find(to_lower(needle)) != std::string::npos;
+}
+
+// "(x, y, z[, r=..][, map=..])" for log lines.
+std::string describe_position(const Position& pos) {
+    char buf[192];
+    int n = std::snprintf(buf, sizeof(buf), "(%.3f, %.3f, %.3f", pos.x, pos.y, pos.z);
+    if (n > 0 && pos.orientation.has_value() && static_cast<size_t>(n) < sizeof(buf)) {
+        n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), ", r=%.3f",
+                           *pos.orientation);
+    }
+    if (n > 0 && pos.map_id.has_value() && static_cast<size_t>(n) < sizeof(buf)) {
+        n += std::snprintf(buf + n, sizeof(buf) - static_cast<size_t>(n), ", map=%u",
+                           static_cast<unsigned>(*pos.map_id));
+    }
+    std::string text(buf);
+    return text + ")";
 }
 
 // Runs a Win32 common file dialog. `save` selects Save-As vs Open. Writes
@@ -72,6 +90,8 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
     std::snprintf(movement_speed_buf_, sizeof(movement_speed_buf_), "%.6g",
                   settings_.movement_speed_value);
     selected_category_ = settings_.last_category.empty() ? ALL_CATEGORY : settings_.last_category;
+    settings_.pid_poll_seconds = sanitize_pid_poll_seconds(settings_.pid_poll_seconds);
+    pid_poll_input_ = settings_.pid_poll_seconds;
 
     // porter_ was bound to favourites_ once in App::App()'s initializer
     // list; reassigning favourites_'s *contents* below keeps that
@@ -84,7 +104,9 @@ void App::initialize(HWND owner_hwnd, BackendMode mode) {
     reload_favourites();
     reload_hotkeys();
     if (mode_ == BackendMode::Attach) {
-        reload_process_list();
+        auto_attach_single_process("startup"); // also fills process_list_
+        next_pid_poll_time_ = (ImGui::GetCurrentContext() ? ImGui::GetTime() : 0.0) +
+                              settings_.pid_poll_seconds;
         if (settings_.desktop_always_on_top && !set_desktop_always_on_top(true)) {
             log("[error] cannot restore always-on-top state (GetLastError=" +
                 std::to_string(GetLastError()) + ")");
@@ -114,6 +136,21 @@ void App::switch_version(const std::string& name) {
 void App::reload_process_list() {
     if (!version_) return;
     process_list_ = list_processes_by_name(version_->executable);
+}
+
+void App::auto_attach_single_process(const char* reason) {
+    if (mode_ != BackendMode::Attach || !backend_) return;
+    reload_process_list();
+    if (process_list_.size() != 1) return;
+    const unsigned long pid = process_list_.front().pid;
+    auto* oop = static_cast<OutOfProcessBackend*>(backend_.get());
+    if (oop->is_attached() && oop->pid() == pid) return;
+    const std::string previous =
+        oop->is_attached() ? std::to_string(oop->pid()) : std::string("none");
+    log(std::string(reason) + ": single WoW process, PID " + previous + " -> " +
+        std::to_string(pid));
+    selected_pid_ = pid;
+    attach_to_pid(pid);
 }
 
 void App::attach_to_pid(unsigned long pid) {
@@ -170,29 +207,38 @@ std::optional<TeleportPoint> App::current_point() const {
     return pts[selected_row_];
 }
 
-void App::do_teleport(const Position& pos) {
+void App::select_category(const std::string& name) {
+    if (selected_category_ != name) selected_row_ = -1;
+    selected_category_ = name;
+    settings_.last_category = name;
+}
+
+void App::do_teleport(const Position& pos, const std::string& label) {
     if (!teleport_) return;
+    // TeleportHackOnVanilla CanTeleportToMap(): writing coordinates can't
+    // change maps, so a point recorded on another map is refused up front.
+    if (!teleport_->can_teleport_to_map(pos)) {
+        log("[warn] teleport cancelled: " + teleport_->last_error());
+        return;
+    }
+    const std::string name = label.empty() ? std::string() : " '" + label + "'";
     if (step_enabled_) {
         StepConfig cfg;
         cfg.distance_per_step = settings_.step_distance;
         cfg.sleep_between_steps_sec = settings_.step_sleep_ms / 1000.0;
-        step_session_.start(*teleport_, pos, cfg);
-        log("step-teleport started");
-    } else {
-        if (teleport_->write_position(pos)) {
-            char buf[160];
-            if (pos.orientation.has_value()) {
-                std::snprintf(buf, sizeof(buf), "teleported to (%.3f, %.3f, %.3f, r=%.3f)", pos.x,
-                              pos.y, pos.z, *pos.orientation);
-            } else {
-                std::snprintf(buf, sizeof(buf), "teleported to (%.3f, %.3f, %.3f)", pos.x, pos.y,
-                              pos.z);
-            }
-            log(buf);
-        } else {
-            log("[error] teleport failed: " + teleport_->last_error());
+        if (!step_session_.start(*teleport_, pos, cfg)) {
+            log("[error] step-teleport failed: " + teleport_->last_error());
+            return;
         }
+        log("step-teleport started" + name + " " + describe_position(pos));
+    } else {
+        if (!teleport_->write_position(pos)) {
+            log("[error] teleport failed: " + teleport_->last_error());
+            return;
+        }
+        log("teleported to" + name + " " + describe_position(pos));
     }
+    recent_.record(label, pos);
 }
 
 void App::safe_toggle(const std::string& name, const std::function<bool(bool&)>& fn) {
@@ -228,13 +274,24 @@ void App::tick() {
         movement_speed_enabled_ = false;
         log("[error] movement speed disabled: " + features_->last_error());
     }
+
+    // Desktop build: re-check WoW.exe every pid_poll_seconds and follow a
+    // restarted client (TeleportHackOnVanilla's WoW PID 查询间隔 timer).
+    if (mode_ == BackendMode::Attach && ImGui::GetCurrentContext()) {
+        const double now = ImGui::GetTime();
+        if (now >= next_pid_poll_time_) {
+            next_pid_poll_time_ = now + sanitize_pid_poll_seconds(settings_.pid_poll_seconds);
+            auto_attach_single_process("WoW PID check");
+        }
+    }
 }
 
 bool App::on_wndproc(UINT msg, WPARAM wParam, LPARAM /*lParam*/) {
     if (msg == WM_HOTKEY && hotkeys_) {
         Position pos;
-        if (hotkeys_->resolve(static_cast<int>(wParam), pos)) {
-            do_teleport(pos);
+        std::string label;
+        if (hotkeys_->resolve(static_cast<int>(wParam), pos, &label)) {
+            do_teleport(pos, label);
             return true;
         }
     }
@@ -287,7 +344,7 @@ void App::render() {
         // The injected overlay's window and table layout use the DLL-only
         // snapshot inside settings.json. Shared window bounds below belong
         // only to the desktop build's native OS window.
-        ImGui::SetNextWindowSize(ImVec2(460.0f, 820.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480.0f, 860.0f), ImGuiCond_FirstUseEver);
         ImGui::Begin(title);
     } else {
         // Desktop build: the *OS* window (see src/desktop/main.cpp) is
@@ -307,22 +364,115 @@ void App::render() {
         ImGui::Separator();
     }
     render_version_row();
-    ImGui::Separator();
-    render_category_and_search();
-    render_table();
-    render_desc_input();
-    render_toggles_row();
-    render_crud_rows();
-    render_teleport_button();
-    render_speed_row();
-    ImGui::Separator();
-    render_import_export();
+
+    if (ImGui::BeginTabBar("##main_tabs")) {
+        const ImGuiTabItemFlags points_flags =
+            focus_points_tab_ ? ImGuiTabItemFlags_SetSelected : ImGuiTabItemFlags_None;
+        focus_points_tab_ = false;
+        if (ImGui::BeginTabItem("\xe5\x9d\x90\xe6\xa0\x87\xe7\x82\xb9", nullptr, // 坐标点
+                                points_flags)) {
+            render_points_tab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("\xe5\x88\x86\xe7\xb1\xbb\xe5\xaf\xbc\xe8\x88\xaa")) { // 分类导航
+            render_navigation_tab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("\xe8\xae\xbe\xe7\xbd\xae")) { // 设置
+            render_settings_tab();
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("\xe5\x85\xb3\xe4\xba\x8e")) { // 关于
+            render_about_tab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+
     ImGui::Separator();
     render_log();
 
-    render_settings_popup();
-
     ImGui::End();
+}
+
+void App::render_points_tab() {
+    render_category_and_search();
+    render_table();
+    render_recent();
+    render_desc_input();
+    render_crud_rows();
+    render_teleport_button();
+}
+
+void App::render_settings_tab() {
+    // 传送设置
+    ImGui::SeparatorText("\xe4\xbc\xa0\xe9\x80\x81\xe8\xae\xbe\xe7\xbd\xae");
+    ImGui::Checkbox("step (\xe5\x88\x86\xe6\xad\xa5\xe4\xbc\xa0\xe9\x80\x81)", // 分步传送
+                    &step_enabled_);
+    ImGui::SetNextItemWidth(160);
+    ImGui::InputDouble("Step distance", &settings_.step_distance);
+    int sleep_ms = settings_.step_sleep_ms;
+    ImGui::SetNextItemWidth(160);
+    if (ImGui::InputInt("Step sleep (ms)", &sleep_ms)) settings_.step_sleep_ms = sleep_ms;
+    ImGui::Checkbox("Fast step (skip Left/Right taps)", &settings_.fast_step);
+
+    ImGui::SeparatorText("\xe5\x8a\x9f\xe8\x83\xbd\xe5\xbc\x80\xe5\x85\xb3"); // 功能开关
+    render_toggles_row();
+
+    ImGui::SeparatorText("\xe9\x80\x9f\xe5\xba\xa6"); // 速度
+    render_speed_row();
+
+    if (mode_ == BackendMode::Attach) {
+        ImGui::SeparatorText("WoW PID \xe6\x9f\xa5\xe8\xaf\xa2\xe9\x97\xb4\xe9\x9a\x94"); // 查询间隔
+        render_pid_poll_row();
+    }
+
+    ImGui::SeparatorText("\xe6\x96\x87\xe4\xbb\xb6\xe8\xb7\xaf\xe5\xbe\x84"); // 文件路径
+    render_paths();
+
+    ImGui::SeparatorText("\xe5\xaf\xbc\xe5\x85\xa5 / \xe5\xaf\xbc\xe5\x87\xba"); // 导入 / 导出
+    render_import_export();
+}
+
+void App::render_navigation_tab() {
+    // Same buckets/order as TeleportHackOnVanilla's RefreshCategoryGrid():
+    // 杂项 (with 所有 first), 东部王国, 卡利姆多, 燃烧的远征, 巫妖王之怒.
+    const auto groups = group_categories(favourites_.category_names());
+    ImGui::BeginChild("##navigation", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 28),
+                      false);
+    for (size_t g = 0; g < groups.size(); ++g) {
+        const std::string header =
+            "\xe3\x80\x90" + groups[g].name + "\xe3\x80\x91"; // 【...】
+        ImGui::SeparatorText(header.c_str());
+        if (groups[g].categories.empty()) continue;
+        ImGui::PushID(static_cast<int>(g));
+        if (ImGui::BeginTable("##grid", 3,
+                              ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV)) {
+            for (const auto& category : groups[g].categories) {
+                ImGui::TableNextColumn();
+                const bool selected = (category == selected_category_);
+                if (ImGui::Selectable(category.c_str(), selected)) {
+                    select_category(category);
+                    focus_points_tab_ = true;
+                }
+            }
+            ImGui::EndTable();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+}
+
+void App::render_about_tab() {
+    ImGui::Text("TeleportHack DX  %s", build_version().c_str());
+    ImGui::Text("\xe4\xbd\x9c\xe8\x80\x85\xef\xbc\x9a%s", app_author().c_str()); // 作者：
+    ImGui::SeparatorText("\xe7\x89\x88\xe6\x9c\xac\xe6\x9b\xb4\xe6\x96\xb0\xe6\x97\xa5\xe5\xbf\x97"); // 版本更新日志
+    ImGui::BeginChild("##release_notes", ImVec2(0, ImGui::GetTextLineHeightWithSpacing() * 24),
+                      true);
+    ImGui::PushTextWrapPos(0.0f);
+    ImGui::TextUnformatted(release_notes().c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndChild();
 }
 
 void App::render_process_list() {
@@ -336,7 +486,9 @@ void App::render_process_list() {
         ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.3f, 1.0f), "not attached");
     }
     ImGui::SameLine();
-    if (ImGui::SmallButton("Refresh")) reload_process_list();
+    // Refresh also auto-attaches when exactly one WoW.exe is running
+    // (TeleportHackOnVanilla's SelectOnlyWowPid on ReloadUI).
+    if (ImGui::SmallButton("Refresh")) auto_attach_single_process("refresh");
     ImGui::SameLine();
     const char* topmost_label =
         settings_.desktop_always_on_top ? "Always on top: ON" : "Always on top: OFF";
@@ -395,9 +547,9 @@ void App::render_version_row() {
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Settings")) show_settings_ = true;
 
+    // Current map (all three clients expose one now); hidden while it
+    // can't be read (not attached / not in world yet).
     if (version_) {
         uint32_t map_id;
         if (version_->map_id && teleport_ && teleport_->read_map_id(map_id)) {
@@ -414,14 +566,12 @@ void App::render_category_and_search() {
     if (ImGui::BeginCombo("##category", selected_category_.c_str())) {
         bool all_selected = (selected_category_ == ALL_CATEGORY);
         if (ImGui::Selectable(ALL_CATEGORY.c_str(), all_selected)) {
-            selected_category_ = ALL_CATEGORY;
-            selected_row_ = -1;
+            select_category(ALL_CATEGORY);
         }
         for (const auto& name : favourites_.category_names()) {
             bool selected = (selected_category_ == name);
             if (ImGui::Selectable(name.c_str(), selected)) {
-                selected_category_ = name;
-                selected_row_ = -1;
+                select_category(name);
             }
         }
         ImGui::EndCombo();
@@ -438,13 +588,14 @@ void App::render_category_and_search() {
 void App::render_table() {
     ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
                              ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable;
-    ImVec2 outer_size(0.0f, ImGui::GetTextLineHeightWithSpacing() * 14);
-    if (ImGui::BeginTable("favourites", 5, flags, outer_size)) {
+    ImVec2 outer_size(0.0f, ImGui::GetTextLineHeightWithSpacing() * 13);
+    if (ImGui::BeginTable("favourites", 6, flags, outer_size)) {
         ImGui::TableSetupColumn("\xe6\x8f\x8f\xe8\xbf\xb0", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("x", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("y", ImGuiTableColumnFlags_WidthFixed, 60.0f);
         ImGui::TableSetupColumn("z", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-        ImGui::TableSetupColumn("r", ImGuiTableColumnFlags_WidthFixed, 48.0f);
+        ImGui::TableSetupColumn("r", ImGuiTableColumnFlags_WidthFixed, 44.0f);
+        ImGui::TableSetupColumn("map", ImGuiTableColumnFlags_WidthFixed, 36.0f);
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableHeadersRow();
 
@@ -458,13 +609,15 @@ void App::render_table() {
             bool selected = (selected_row_ == i);
             ImGuiSelectableFlags sel_flags =
                 ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick;
+            ImGui::PushID(i);
             if (ImGui::Selectable(pt.description.c_str(), selected, sel_flags)) {
                 selected_row_ = i;
                 std::snprintf(desc_buf_, sizeof(desc_buf_), "%s", pt.description.c_str());
                 if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                    do_teleport(pt.position);
+                    do_teleport(pt.position, pt.description);
                 }
             }
+            ImGui::PopID();
             ImGui::TableSetColumnIndex(1);
             ImGui::Text("%.3f", pt.position.x);
             ImGui::TableSetColumnIndex(2);
@@ -477,8 +630,70 @@ void App::render_table() {
             } else {
                 ImGui::TextDisabled("-");
             }
+            ImGui::TableSetColumnIndex(5);
+            if (pt.position.map_id.has_value()) {
+                ImGui::Text("%u", static_cast<unsigned>(*pt.position.map_id));
+            } else {
+                ImGui::TextDisabled("-");
+            }
         }
         ImGui::EndTable();
+    }
+}
+
+void App::render_recent() {
+    // 最近使用的坐标 -- 双击再次传送
+    ImGui::TextUnformatted(
+        "\xe6\x9c\x80\xe8\xbf\x91\xe4\xbd\xbf\xe7\x94\xa8\xe7\x9a\x84\xe5\x9d\x90\xe6\xa0\x87");
+    ImGui::SameLine();
+    ImGui::TextDisabled("(\xe5\x8f\x8c\xe5\x87\xbb\xe5\x86\x8d\xe6\xac\xa1\xe4\xbc\xa0\xe9\x80\x81)");
+
+    ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders |
+                             ImGuiTableFlags_ScrollY | ImGuiTableFlags_Resizable;
+    ImVec2 outer_size(0.0f, ImGui::GetTextLineHeightWithSpacing() * 5.5f);
+    int clicked = -1;
+    if (ImGui::BeginTable("recent", 5, flags, outer_size)) {
+        ImGui::TableSetupColumn("\xe6\x9c\x80\xe8\xbf\x91\xe4\xbd\xbf\xe7\x94\xa8", // 最近使用
+                                ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("x", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("y", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("z", ImGuiTableColumnFlags_WidthFixed, 60.0f);
+        ImGui::TableSetupColumn("map", ImGuiTableColumnFlags_WidthFixed, 36.0f);
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+
+        const auto& entries = recent_.entries();
+        for (int i = 0; i < static_cast<int>(entries.size()); ++i) {
+            const auto& entry = entries[static_cast<size_t>(i)];
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::PushID(i);
+            if (ImGui::Selectable(entry.label.c_str(), false,
+                                  ImGuiSelectableFlags_SpanAllColumns |
+                                      ImGuiSelectableFlags_AllowDoubleClick) &&
+                ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                clicked = i;
+            }
+            ImGui::PopID();
+            ImGui::TableSetColumnIndex(1);
+            ImGui::Text("%.3f", entry.position.x);
+            ImGui::TableSetColumnIndex(2);
+            ImGui::Text("%.3f", entry.position.y);
+            ImGui::TableSetColumnIndex(3);
+            ImGui::Text("%.3f", entry.position.z);
+            ImGui::TableSetColumnIndex(4);
+            if (entry.position.map_id.has_value()) {
+                ImGui::Text("%u", static_cast<unsigned>(*entry.position.map_id));
+            } else {
+                ImGui::TextDisabled("-");
+            }
+        }
+        ImGui::EndTable();
+    }
+    // Teleport after the loop: do_teleport() reorders the recent list.
+    RecentTeleport entry;
+    if (clicked >= 0 && recent_.get(static_cast<size_t>(clicked), entry)) {
+        do_teleport(entry.position, entry.label);
     }
 }
 
@@ -493,8 +708,6 @@ void App::render_desc_input() {
 }
 
 void App::render_toggles_row() {
-    ImGui::Checkbox("step", &step_enabled_);
-    ImGui::SameLine();
     if (ImGui::Button("AntiJump")) {
         safe_toggle("anti-jump", [&](bool& on) { return features_->toggle_anti_jump(on); });
     }
@@ -681,9 +894,11 @@ void App::render_crud_rows() {
 
 void App::render_teleport_button() {
     ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 10));
-    if (ImGui::Button("Teleport", ImVec2(-1, 0))) {
+    // The step toggle lives on the 设置 tab now; keep its state visible here.
+    const char* label = step_enabled_ ? "Teleport (step)###teleport" : "Teleport###teleport";
+    if (ImGui::Button(label, ImVec2(-1, 0))) {
         auto pt = current_point();
-        if (pt) do_teleport(pt->position);
+        if (pt) do_teleport(pt->position, pt->description);
     }
     ImGui::PopStyleVar();
 }
@@ -751,49 +966,45 @@ void App::render_speed_row() {
 }
 
 void App::render_import_export() {
-    if (ImGui::TreeNodeEx("Import / Export", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::SetNextItemWidth(-90.0f);
-        ImGui::InputText("##export_path", export_path_buf_, sizeof(export_path_buf_));
-        ImGui::SameLine();
-        if (ImGui::Button("Export...")) {
-            if (run_file_dialog(hwnd_, export_path_buf_, sizeof(export_path_buf_), true)) {
-                std::string error;
-                int n = porter_.export_to(export_path_buf_, error);
-                if (n >= 0)
-                    log("exported " + std::to_string(n) + " points to " +
-                        std::string(export_path_buf_));
-                else
-                    log("[error] export failed: " + error);
-            }
-        }
-
-        ImGui::SetNextItemWidth(-90.0f);
-        ImGui::InputText("##import_path", import_path_buf_, sizeof(import_path_buf_));
-        ImGui::SameLine();
-        if (ImGui::Button("Import...")) {
-            run_file_dialog(hwnd_, import_path_buf_, sizeof(import_path_buf_), false);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Merge")) {
+    ImGui::SetNextItemWidth(-90.0f);
+    ImGui::InputText("##export_path", export_path_buf_, sizeof(export_path_buf_));
+    ImGui::SameLine();
+    if (ImGui::Button("Export...")) {
+        if (run_file_dialog(hwnd_, export_path_buf_, sizeof(export_path_buf_), true)) {
             std::string error;
-            MergeReport report;
-            if (porter_.import_merge(import_path_buf_, report, error)) {
-                log("merged " + std::to_string(report.added) + " new, skipped " +
-                    std::to_string(report.skipped_duplicates) + " duplicates");
-            } else {
-                log("[error] " + error);
-            }
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Replace")) {
-            std::string error;
-            int n = porter_.import_replace(import_path_buf_, error);
+            int n = porter_.export_to(export_path_buf_, error);
             if (n >= 0)
-                log("imported " + std::to_string(n) + " points (replaced)");
+                log("exported " + std::to_string(n) + " points to " +
+                    std::string(export_path_buf_));
             else
-                log("[error] " + error);
+                log("[error] export failed: " + error);
         }
-        ImGui::TreePop();
+    }
+
+    ImGui::SetNextItemWidth(-90.0f);
+    ImGui::InputText("##import_path", import_path_buf_, sizeof(import_path_buf_));
+    ImGui::SameLine();
+    if (ImGui::Button("Import...")) {
+        run_file_dialog(hwnd_, import_path_buf_, sizeof(import_path_buf_), false);
+    }
+    if (ImGui::Button("Merge")) {
+        std::string error;
+        MergeReport report;
+        if (porter_.import_merge(import_path_buf_, report, error)) {
+            log("merged " + std::to_string(report.added) + " new, skipped " +
+                std::to_string(report.skipped_duplicates) + " duplicates");
+        } else {
+            log("[error] " + error);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Replace")) {
+        std::string error;
+        int n = porter_.import_replace(import_path_buf_, error);
+        if (n >= 0)
+            log("imported " + std::to_string(n) + " points (replaced)");
+        else
+            log("[error] " + error);
     }
 }
 
@@ -807,15 +1018,37 @@ void App::render_log() {
     ImGui::EndChild();
 }
 
-void App::render_settings_popup() {
-    if (!show_settings_) return;
-    ImGui::Begin("Settings", &show_settings_, ImGuiWindowFlags_AlwaysAutoResize);
+void App::render_pid_poll_row() {
+    // TeleportHackOnVanilla's 设置 tab: "WoW PID 查询间隔 [30] 秒 [应用]".
+    ImGui::SetNextItemWidth(100);
+    ImGui::InputInt("##pid_poll", &pid_poll_input_);
+    ImGui::SameLine();
+    ImGui::TextUnformatted("\xe7\xa7\x92"); // 秒
+    ImGui::SameLine();
+    if (ImGui::Button("\xe5\xba\x94\xe7\x94\xa8##pid_poll")) { // 应用
+        const int seconds = sanitize_pid_poll_seconds(pid_poll_input_, 0);
+        if (seconds == 0) {
+            pid_poll_input_ = settings_.pid_poll_seconds;
+            log("[warn] WoW PID poll interval must be 1-3600 seconds");
+        } else {
+            settings_.pid_poll_seconds = seconds;
+            next_pid_poll_time_ = ImGui::GetTime() + seconds; // restart the timer
+            std::string error;
+            if (settings_repo_.save(settings_, error)) {
+                log("WoW PID poll interval: " + std::to_string(seconds) + " s");
+            } else {
+                log("[error] settings save failed: " + error);
+            }
+        }
+    }
+    // 只有一个 WoW 进程时自动连接；间隔 1-3600 秒
+    ImGui::TextDisabled(
+        "\xe5\x8f\xaa\xe6\x9c\x89\xe4\xb8\x80\xe4\xb8\xaa WoW \xe8\xbf\x9b\xe7\xa8\x8b\xe6\x97\xb6"
+        "\xe8\x87\xaa\xe5\x8a\xa8\xe8\xbf\x9e\xe6\x8e\xa5\xef\xbc\x9b\xe9\x97\xb4\xe9\x9a\x94 "
+        "1-3600 \xe7\xa7\x92");
+}
 
-    ImGui::InputDouble("Step distance", &settings_.step_distance);
-    int sleep_ms = settings_.step_sleep_ms;
-    if (ImGui::InputInt("Step sleep (ms)", &sleep_ms)) settings_.step_sleep_ms = sleep_ms;
-    ImGui::Checkbox("Fast step (skip Left/Right taps)", &settings_.fast_step);
-
+void App::render_paths() {
     char fav_path[512];
     std::snprintf(fav_path, sizeof(fav_path), "%s", settings_.favlist_path.c_str());
     if (ImGui::InputText("favlist.fav path", fav_path, sizeof(fav_path))) {
@@ -853,7 +1086,6 @@ void App::render_settings_popup() {
         else
             log("[error] settings save failed: " + error);
     }
-    ImGui::End();
 }
 
 } // namespace th

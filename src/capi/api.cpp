@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "domain/app_info.h"
+#include "domain/category_groups.h"
 #include "domain/models.h"
 #include "domain/versions.h"
 #include "memory/outofprocess_backend.h"
@@ -18,6 +20,7 @@
 #include "services/favourites_service.h"
 #include "services/favourites_porter.h"
 #include "services/feature_service.h"
+#include "services/recent_teleports.h"
 #include "services/teleport_service.h"
 #include "repository/teleport_lua_repository.h"
 #include "util/process_list.h"
@@ -38,6 +41,30 @@ int32_t copy_string(const std::string& source, char* out, int32_t out_size) {
     return needed;
 }
 
+// Shared out-parameter convention: `has_*` always written (when non-NULL),
+// the value itself only when present.
+void fill_position(const th::Position& pos, double* x, double* y, double* z, double* r,
+                   int32_t* has_r, uint32_t* map_id, int32_t* has_map) {
+    if (x) *x = pos.x;
+    if (y) *y = pos.y;
+    if (z) *z = pos.z;
+    if (has_r) *has_r = pos.orientation.has_value() ? 1 : 0;
+    if (r && pos.orientation.has_value()) *r = *pos.orientation;
+    if (has_map) *has_map = pos.map_id.has_value() ? 1 : 0;
+    if (map_id && pos.map_id.has_value()) *map_id = *pos.map_id;
+}
+
+th::Position make_position(double x, double y, double z, int32_t has_r, double r,
+                           int32_t has_map, uint32_t map_id) {
+    th::Position pos;
+    pos.x = x;
+    pos.y = y;
+    pos.z = z;
+    if (has_r) pos.orientation = r;
+    if (has_map) pos.map_id = map_id;
+    return pos;
+}
+
 } // namespace
 
 // -------------------------------------------------------------------------
@@ -52,6 +79,7 @@ struct th_session {
     std::optional<th::TeleportService> teleport;
     std::optional<th::FeatureService> features;
     std::vector<th::TeleportPoint> favourites;
+    th::RecentTeleports recent;
     std::string last_error;
 
     void rebind_services() {
@@ -215,19 +243,7 @@ extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_get_version(th_session
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
 th_session_read_position(th_session* session, double* x, double* y, double* z, double* r,
                           int32_t* has_r) {
-    if (!session || !session->teleport) return -1;
-    th::Position pos;
-    if (!session->teleport->read_position(pos)) {
-        session->last_error = session->teleport->last_error();
-        return -1;
-    }
-    if (x) *x = pos.x;
-    if (y) *y = pos.y;
-    if (z) *z = pos.z;
-    if (has_r) *has_r = pos.orientation.has_value() ? 1 : 0;
-    if (r && pos.orientation.has_value()) *r = *pos.orientation;
-    session->last_error.clear();
-    return 0;
+    return th_session_read_position_ex(session, x, y, z, r, has_r, nullptr, nullptr);
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_teleport(th_session* session,
@@ -374,12 +390,8 @@ th_favourites_get_position(th_session* session, int32_t index, double* x, double
                              double* z, double* r, int32_t* has_r) {
     if (!session) return -1;
     if (index < 0 || static_cast<size_t>(index) >= session->favourites.size()) return -1;
-    const th::Position& pos = session->favourites[static_cast<size_t>(index)].position;
-    if (x) *x = pos.x;
-    if (y) *y = pos.y;
-    if (z) *z = pos.z;
-    if (has_r) *has_r = pos.orientation.has_value() ? 1 : 0;
-    if (r && pos.orientation.has_value()) *r = *pos.orientation;
+    fill_position(session->favourites[static_cast<size_t>(index)].position, x, y, z, r, has_r,
+                  nullptr, nullptr);
     return 0;
 }
 
@@ -403,25 +415,13 @@ th::FavouritesService make_service(th_session* session) {
     return service;
 }
 
-int32_t make_position(double x, double y, double z, int32_t has_r, double r,
-                      th::Position& out) {
-    out.x = x;
-    out.y = y;
-    out.z = z;
-    out.orientation = has_r ? std::optional<double>(r) : std::nullopt;
-    return 0;
-}
-
 using MutatorFn = bool (th::FavouritesService::*)(const std::string&, int,
                                                    const th::TeleportPoint&, std::string&);
 
 int32_t run_mutator(th_session* session, MutatorFn fn, const char* category, int32_t local_index,
-                    const char* description, double x, double y, double z, int32_t has_r,
-                    double r) {
+                    const char* description, const th::Position& pos) {
     if (!session || !category || !description) return -1;
     return guarded_call(session, "favourites mutation", [&]() -> int32_t {
-        th::Position pos;
-        make_position(x, y, z, has_r, r, pos);
         th::TeleportPoint point{description, pos};
         auto service = make_service(session);
         std::string error;
@@ -433,6 +433,20 @@ int32_t run_mutator(th_session* session, MutatorFn fn, const char* category, int
         session->last_error.clear();
         return 0;
     });
+}
+
+// Map guard + write + recent-list entry, shared by th_session_teleport_ex
+// and th_recent_teleport.
+int32_t teleport_and_record(th_session* session, const std::string& label,
+                            const th::Position& pos) {
+    if (!session->teleport->can_teleport_to_map(pos) ||
+        !session->teleport->write_position(pos)) {
+        session->last_error = session->teleport->last_error();
+        return -1;
+    }
+    session->recent.record(label, pos);
+    session->last_error.clear();
+    return 0;
 }
 
 } // namespace
@@ -462,7 +476,7 @@ th_favourites_insert_in_category(th_session* session, const char* category, int3
                                    const char* description, double x, double y, double z,
                                    int32_t has_r, double r) {
     return run_mutator(session, &th::FavouritesService::insert_in_category, category, local_index,
-                        description, x, y, z, has_r, r);
+                        description, make_position(x, y, z, has_r, r, 0, 0));
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
@@ -470,7 +484,7 @@ th_favourites_append_in_category(th_session* session, const char* category, int3
                                    const char* description, double x, double y, double z,
                                    int32_t has_r, double r) {
     return run_mutator(session, &th::FavouritesService::append_in_category, category, local_index,
-                        description, x, y, z, has_r, r);
+                        description, make_position(x, y, z, has_r, r, 0, 0));
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
@@ -478,7 +492,7 @@ th_favourites_replace_in_category(th_session* session, const char* category, int
                                     const char* description, double x, double y, double z,
                                     int32_t has_r, double r) {
     return run_mutator(session, &th::FavouritesService::replace_in_category, category, local_index,
-                        description, x, y, z, has_r, r);
+                        description, make_position(x, y, z, has_r, r, 0, 0));
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL
@@ -640,4 +654,150 @@ extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_insert_current_af
         session->last_error.clear();
         return 0;
     });
+}
+
+// -------------------------------------------------------------------------
+// Map IDs + facing
+// -------------------------------------------------------------------------
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_read_position_ex(
+    th_session* session, double* x, double* y, double* z, double* r, int32_t* has_r,
+    uint32_t* map_id, int32_t* has_map) {
+    if (!session || !session->teleport) return -1;
+    th::Position pos;
+    if (!session->teleport->read_position(pos)) {
+        session->last_error = session->teleport->last_error();
+        return -1;
+    }
+    fill_position(pos, x, y, z, r, has_r, map_id, has_map);
+    session->last_error.clear();
+    return 0;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_read_map_id(th_session* session,
+                                                                        uint32_t* map_id) {
+    if (!session || !session->teleport) return -1;
+    uint32_t value = 0;
+    if (!session->teleport->read_map_id(value)) {
+        session->last_error = session->teleport->last_error();
+        return -1;
+    }
+    if (map_id) *map_id = value;
+    session->last_error.clear();
+    return 0;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_teleport_ex(
+    th_session* session, const char* label, double x, double y, double z, int32_t has_r,
+    double r, int32_t has_map, uint32_t map_id) {
+    if (!session || !session->teleport) return -1;
+    return guarded_call(session, "teleport", [&]() -> int32_t {
+        return teleport_and_record(session, label ? std::string(label) : std::string(),
+                                   make_position(x, y, z, has_r, r, has_map, map_id));
+    });
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_get_map_id(th_session* session,
+                                                                          int32_t index,
+                                                                          uint32_t* map_id,
+                                                                          int32_t* has_map) {
+    if (!session) return -1;
+    if (index < 0 || static_cast<size_t>(index) >= session->favourites.size()) return -1;
+    fill_position(session->favourites[static_cast<size_t>(index)].position, nullptr, nullptr,
+                  nullptr, nullptr, nullptr, map_id, has_map);
+    return 0;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_insert_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id) {
+    return run_mutator(session, &th::FavouritesService::insert_in_category, category, local_index,
+                       description, make_position(x, y, z, has_r, r, has_map, map_id));
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_append_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id) {
+    return run_mutator(session, &th::FavouritesService::append_in_category, category, local_index,
+                       description, make_position(x, y, z, has_r, r, has_map, map_id));
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_replace_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id) {
+    return run_mutator(session, &th::FavouritesService::replace_in_category, category,
+                       local_index, description,
+                       make_position(x, y, z, has_r, r, has_map, map_id));
+}
+
+// -------------------------------------------------------------------------
+// Recent teleports
+// -------------------------------------------------------------------------
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_count(th_session* session) {
+    if (!session) return -1;
+    return static_cast<int32_t>(session->recent.size());
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_get_label(th_session* session,
+                                                                     int32_t index, char* out,
+                                                                     int32_t out_size) {
+    if (!session || index < 0) return -1;
+    th::RecentTeleport entry;
+    if (!session->recent.get(static_cast<size_t>(index), entry)) return -1;
+    return copy_string(entry.label, out, out_size);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_get_position(
+    th_session* session, int32_t index, double* x, double* y, double* z, double* r,
+    int32_t* has_r, uint32_t* map_id, int32_t* has_map) {
+    if (!session || index < 0) return -1;
+    th::RecentTeleport entry;
+    if (!session->recent.get(static_cast<size_t>(index), entry)) return -1;
+    fill_position(entry.position, x, y, z, r, has_r, map_id, has_map);
+    return 0;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_teleport(th_session* session,
+                                                                    int32_t index) {
+    if (!session || !session->teleport || index < 0) return -1;
+    return guarded_call(session, "recent teleport", [&]() -> int32_t {
+        th::RecentTeleport entry;
+        if (!session->recent.get(static_cast<size_t>(index), entry)) {
+            session->last_error = "recent teleport index out of range";
+            return -1;
+        }
+        return teleport_and_record(session, entry.label, entry.position);
+    });
+}
+
+// -------------------------------------------------------------------------
+// Category navigation groups + about
+// -------------------------------------------------------------------------
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_count(void) {
+    return th::kCategoryGroupCount;
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_name(int32_t group, char* out,
+                                                                        int32_t out_size) {
+    if (group < 0 || group >= th::kCategoryGroupCount) return -1;
+    return copy_string(th::category_group_name(group), out, out_size);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_of(const char* category) {
+    if (!category) return -1;
+    return th::category_group_of(category);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_build_version(char* out, int32_t out_size) {
+    return copy_string(th::build_version(), out, out_size);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_app_author(char* out, int32_t out_size) {
+    return copy_string(th::app_author(), out, out_size);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_release_notes(char* out, int32_t out_size) {
+    return copy_string(th::release_notes(), out, out_size);
 }

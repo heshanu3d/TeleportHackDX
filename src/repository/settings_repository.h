@@ -31,6 +31,10 @@ struct Settings {
     double movement_speed_value = 7.0;
     bool fast_step = false;
     bool desktop_always_on_top = false;
+    // Desktop (Attach) UIs re-check the running WoW.exe processes every N
+    // seconds and attach automatically when exactly one has a new PID
+    // (TeleportHackOnVanilla's "WoW PID 查询间隔", 1..3600, default 30).
+    int pid_poll_seconds = 30;
 
     // Dear ImGui's native ini-format layout snapshots, stored as escaped
     // JSON strings so both modes keep independent window/table layouts
@@ -43,8 +47,8 @@ struct Settings {
     // -1 for x/y means "not set yet, let the platform pick a default".
     int window_x = -1;
     int window_y = -1;
-    int window_width = 460;
-    int window_height = 820;
+    int window_width = 500;
+    int window_height = 900;
 
     // Managed desktop UI geometry. Native saves include these fields so
     // opening/closing an ImGui build does not erase WPF/WinForms state.
@@ -77,5 +81,12 @@ public:
 private:
     std::filesystem::path path_;
 };
+
+constexpr int kMinPidPollSeconds = 1;
+constexpr int kMaxPidPollSeconds = 3600;
+constexpr int kDefaultPidPollSeconds = 30;
+
+// ParseWowPidPollSeconds(): accepts 1..3600, anything else -> `fallback`.
+int sanitize_pid_poll_seconds(int seconds, int fallback = kDefaultPidPollSeconds);
 
 } // namespace th

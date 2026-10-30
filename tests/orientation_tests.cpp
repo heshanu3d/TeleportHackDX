@@ -9,8 +9,9 @@
 // (4-line and 5-line), save() round-trip normalising to canonical 5-field
 // lines, merge-dedup distinguishing missing/zero/non-zero orientation, and
 // 3.3.5's pos_r read/write-only-when-present behaviour via a FakeBackend
-// (also confirms 1.12.x never touches pos_r since those profiles have
-// pos_r == 0).
+// (also confirms the 1.12.x profiles have no pos_r and degrade gracefully
+// when their movement-struct facing chain isn't readable; the 1.12.x facing
+// itself is covered by sync_tests.cpp).
 #include <cassert>
 #include <cmath>
 #include <cstdio>
@@ -208,11 +209,15 @@ void test_335_orientation_memory() {
 }
 
 void test_112x_never_touches_pos_r() {
+    // 1.12.x facing support (TeleportHackOnVanilla 309516d) lives in the
+    // movement struct reached through dst_z_offsets -- see sync_tests.cpp.
+    // These profiles still have no 3.3.5-style pos_r offset, and a missing
+    // movement chain must leave the facing unset rather than fail the read.
     for (const char* name : {"1.12.1", "1.12.3"}) {
         const th::GameVersion* version = th::find_version(name);
         check(version != nullptr, "1.12.x profile exists");
         if (!version) continue;
-        check(version->pos_r == 0, (std::string(name) + " has pos_r == 0 (no orientation offset)")
+        check(version->pos_r == 0, (std::string(name) + " has pos_r == 0 (no 3.3.5 offset)")
                                         .c_str());
 
         FakeBackend backend;
@@ -223,7 +228,8 @@ void test_112x_never_touches_pos_r() {
         th::Position pos;
         check(service.read_position(pos), (std::string(name) + " position reads").c_str());
         check(!pos.orientation.has_value(),
-              (std::string(name) + " read_position never sets an orientation").c_str());
+              (std::string(name) + " read_position without a movement chain has no orientation")
+                  .c_str());
     }
 }
 

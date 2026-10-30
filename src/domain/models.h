@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -19,12 +20,22 @@ struct Position {
     double y = 0.0;
     double z = 0.0;
 
-    // Optional facing/orientation in radians. Only WoW 3.3.5 has a usable
-    // offset for this (player_base + pos_r, 0x7A8); 1.12.1/1.12.3 never
-    // populate it. A missing value means "preserve the player's current
-    // facing" -- this is NOT the same as an explicit orientation of 0, so
-    // the distinction must survive parsing/serialisation/dedup/writes.
+    // Optional facing/orientation in radians. 3.3.5 stores it at
+    // player_base + pos_r (0x7A8); 1.12.1/1.12.3 store it right after the
+    // destination Z float of the movement struct (see
+    // GameVersion::dst_r_offset). A missing value means "preserve the
+    // player's current facing" -- this is NOT the same as an explicit
+    // orientation of 0, so the distinction must survive
+    // parsing/serialisation/dedup/writes.
     std::optional<double> orientation;
+
+    // Optional WoW map ID (0 = Eastern Kingdoms, 1 = Kalimdor, 530 =
+    // Outland, 571 = Northrend; instances have their own IDs). Missing means
+    // "unknown, don't verify"; an explicit 0 is a real map. Writing
+    // coordinates can't move the player to another map, so teleports to a
+    // point that carries a map ID are cancelled unless the player is
+    // currently on that map (TeleportHackOnVanilla's CanTeleportToMap).
+    std::optional<uint32_t> map_id;
 
     double distance_to(const Position& other) const {
         double dx = x - other.x, dy = y - other.y, dz = z - other.z;

@@ -64,10 +64,11 @@ void HotkeyService::clear() {
     entries_.clear();
 }
 
-bool HotkeyService::resolve(int id, Position& out) const {
+bool HotkeyService::resolve(int id, Position& out, std::string* label) const {
     for (const auto& e : entries_) {
         if (e.id == id) {
             out = e.position;
+            if (label) *label = e.point_name;
             return true;
         }
     }

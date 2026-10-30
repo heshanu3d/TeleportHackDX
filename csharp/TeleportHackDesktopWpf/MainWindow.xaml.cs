@@ -1,5 +1,5 @@
-// MVP+ WPF UI for TeleportHackDX. Deliberately code-behind (no MVVM
-// framework) so the whole surface is reviewable inline. See
+// WPF UI for TeleportHackDX. Deliberately code-behind (no MVVM framework)
+// so the whole surface is reviewable inline. See
 // ../../csharp/TeleportHackCore for the P/Invoke wrapper this drives.
 using System;
 using System.Collections.Generic;
@@ -9,7 +9,9 @@ using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using TeleportHackCore;
@@ -18,26 +20,42 @@ namespace TeleportHackDesktopWpf;
 
 public partial class MainWindow : Window
 {
+    private const int DefaultPidPollSeconds = 30;
+
     private readonly TeleportSession _session = new();
     private readonly SettingsDocument _settings = SettingsDocument.LoadFromApplicationDirectory();
     private readonly HotkeyRegistry _hotkeys = new();
     private readonly DispatcherTimer _moveSpeedTimer =
         new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+    // TeleportHackOnVanilla's "WoW PID 查询间隔": follow a restarted client.
+    private readonly DispatcherTimer _pidPollTimer =
+        new DispatcherTimer { Interval = TimeSpan.FromSeconds(DefaultPidPollSeconds) };
+    // Refreshes the "map:" label once a second while attached.
+    private readonly DispatcherTimer _statusTimer =
+        new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
     private bool _moveSpeedEnabled;
+    private int _pidPollSeconds = DefaultPidPollSeconds;
 
     private IReadOnlyList<FavouritePoint> _allFavourites = Array.Empty<FavouritePoint>();
     private readonly ObservableCollection<FavouriteRow> _rows = new();
+    private readonly ObservableCollection<RecentRow> _recentRows = new();
     private string? _favlistPath;
     private string? _teleportLuaPath;
     private string? _hotkeyPath;
     private HwndSource? _windowSource;
+    // Set while the category combo is repopulated so its SelectionChanged
+    // doesn't rebuild the 1600+ row list (and lose the scroll position) twice.
+    private bool _updatingCategories;
 
     public MainWindow()
     {
         InitializeComponent();
         FavouritesView.ItemsSource = _rows;
+        RecentView.ItemsSource = _recentRows;
 
         _moveSpeedTimer.Tick += MoveSpeedTimer_Tick;
+        _pidPollTimer.Tick += (_, _) => AutoAttachSingleProcess("WoW PID check");
+        _statusTimer.Tick += (_, _) => UpdateMapLabel();
         Closing += (_, _) => Shutdown();
         SourceInitialized += MainWindow_SourceInitialized;
 
@@ -51,15 +69,23 @@ public partial class MainWindow : Window
         }
         catch (Exception ex) { Log("[error] enumerating versions: " + ex.Message); }
 
+        PopulateAbout();
         RefreshProcesses();
         ApplySettingsAndLoadData();
+        AutoAttachSingleProcess("startup");
+        _pidPollTimer.Start();
+        _statusTimer.Start();
     }
 
     // -------------------------------------------------------------------------
     // Event handlers (XAML-facing)
     // -------------------------------------------------------------------------
 
-    private void RefreshButton_Click(object sender, RoutedEventArgs e) => RefreshProcesses();
+    private void RefreshButton_Click(object sender, RoutedEventArgs e)
+    {
+        RefreshProcesses();
+        AutoAttachSingleProcess("refresh");
+    }
 
     private void AttachButton_Click(object sender, RoutedEventArgs e)
     {
@@ -68,20 +94,7 @@ public partial class MainWindow : Window
             Log("[warn] pick a WoW process first");
             return;
         }
-        try
-        {
-            if (_moveSpeedEnabled) DisableMovementSpeed();
-            _session.Attach(row.Row.Pid);
-            AttachStatus.Text = $"attached (PID {row.Row.Pid})";
-            AttachStatus.Foreground = System.Windows.Media.Brushes.DarkGreen;
-            Log($"attached to PID {row.Row.Pid}");
-        }
-        catch (Exception ex)
-        {
-            AttachStatus.Text = "not attached";
-            AttachStatus.Foreground = System.Windows.Media.Brushes.DarkRed;
-            Log("[error] attach: " + ex.Message);
-        }
+        AttachPid(row.Row.Pid);
     }
 
     private void VersionCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -94,6 +107,7 @@ public partial class MainWindow : Window
             Log($"client profile: {picked}");
         }
         catch (Exception ex) { Log("[error] set version: " + ex.Message); }
+        UpdateMapLabel();
     }
 
     private void AlwaysOnTopCheck_CheckedChanged(object sender, RoutedEventArgs e)
@@ -115,7 +129,9 @@ public partial class MainWindow : Window
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e) => RefreshFavouritesView();
 
     private void CategoryCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        => RefreshFavouritesView();
+    {
+        if (!_updatingCategories) RefreshFavouritesView();
+    }
 
     private void FavouritesView_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -125,6 +141,18 @@ public partial class MainWindow : Window
 
     private void FavouritesView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         => TeleportSelected();
+
+    private void RecentView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (RecentView.SelectedItem is not RecentRow row) return;
+        try
+        {
+            _session.TeleportRecent(row.Entry.Index);
+            Log($"teleported to recent '{row.Entry.Label}'");
+            RefreshRecentView();
+        }
+        catch (Exception ex) { Log("[warn] " + ex.Message); }
+    }
 
     private void TeleportButton_Click(object sender, RoutedEventArgs e) => TeleportSelected();
 
@@ -171,6 +199,39 @@ public partial class MainWindow : Window
         else EnableMovementSpeed();
     }
 
+    private void PidPollApply_Click(object sender, RoutedEventArgs e)
+    {
+        if (!int.TryParse(PidPollInput.Text.Trim(), NumberStyles.Integer,
+                          CultureInfo.InvariantCulture, out int seconds) ||
+            seconds < 1 || seconds > 3600)
+        {
+            PidPollInput.Text = _pidPollSeconds.ToString(CultureInfo.InvariantCulture);
+            Log("[warn] WoW PID poll interval must be 1-3600 seconds");
+            return;
+        }
+        _pidPollSeconds = seconds;
+        PidPollInput.Text = seconds.ToString(CultureInfo.InvariantCulture);
+        _pidPollTimer.Stop();
+        _pidPollTimer.Interval = TimeSpan.FromSeconds(seconds);
+        _pidPollTimer.Start();
+        try
+        {
+            _settings.Set("pid_poll_seconds", seconds);
+            _settings.Save();
+            Log($"WoW PID poll interval: {seconds} s");
+        }
+        catch (Exception ex) { Log("[error] save settings: " + ex.Message); }
+    }
+
+    private void NavigationButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string category }) return;
+        int index = CategoryCombo.Items.IndexOf(category);
+        if (index < 0) return;
+        CategoryCombo.SelectedIndex = index;
+        MainTabs.SelectedIndex = 0;
+    }
+
     private void MainWindow_SourceInitialized(object? sender, EventArgs e)
     {
         _windowSource = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle);
@@ -184,12 +245,7 @@ public partial class MainWindow : Window
         if (msg == HotkeyRegistry.WmHotkey &&
             _hotkeys.TryResolve(wParam.ToInt32(), out FavouritePoint point))
         {
-            try
-            {
-                _session.Teleport(point.X, point.Y, point.Z, point.Orientation);
-                Log($"hotkey teleported to '{point.Description}'");
-            }
-            catch (Exception ex) { Log("[error] hotkey teleport: " + ex.Message); }
+            TeleportPoint(point, "hotkey teleported to");
             handled = true;
         }
         return IntPtr.Zero;
@@ -199,16 +255,84 @@ public partial class MainWindow : Window
     // Core actions
     // -------------------------------------------------------------------------
 
-    private void RefreshProcesses()
+    private void PopulateAbout()
+    {
+        try
+        {
+            AboutTitle.Text = "TeleportHack DX  " + TeleportSession.BuildVersion();
+            AboutAuthor.Text = "作者：" + TeleportSession.AppAuthor();
+            ReleaseNotesBox.Text = TeleportSession.ReleaseNotes();
+        }
+        catch (Exception ex) { ReleaseNotesBox.Text = "[error] " + ex.Message; }
+    }
+
+    private void RefreshProcesses(uint? selectPid = null)
     {
         ProcessCombo.Items.Clear();
         try
         {
-            foreach (var row in TeleportSession.ListProcesses("WoW.exe"))
-                ProcessCombo.Items.Add(new ProcessRowDisplay(row));
-            if (ProcessCombo.Items.Count > 0) ProcessCombo.SelectedIndex = 0;
+            foreach (var processRow in TeleportSession.ListProcesses("WoW.exe"))
+                ProcessCombo.Items.Add(new ProcessRowDisplay(processRow));
+            int index = 0;
+            for (int i = 0; selectPid.HasValue && i < ProcessCombo.Items.Count; ++i)
+                if (ProcessCombo.Items[i] is ProcessRowDisplay display &&
+                    display.Row.Pid == selectPid.Value)
+                    index = i;
+            if (ProcessCombo.Items.Count > 0) ProcessCombo.SelectedIndex = index;
         }
         catch (Exception ex) { Log("[error] list processes: " + ex.Message); }
+    }
+
+    // TeleportHackOnVanilla's SelectOnlyWowPid()/CheckWowPidForReload():
+    // exactly one WoW.exe running and it isn't the attached PID -> attach.
+    private void AutoAttachSingleProcess(string reason)
+    {
+        IReadOnlyList<ProcessRow> rows;
+        try { rows = TeleportSession.ListProcesses("WoW.exe"); }
+        catch (Exception ex)
+        {
+            Log("[error] list processes: " + ex.Message);
+            return;
+        }
+        if (rows.Count != 1) return;
+        uint pid = rows[0].Pid;
+        if (_session.IsAttached && _session.AttachedPid == pid) return;
+        string previous = _session.IsAttached
+            ? _session.AttachedPid.ToString(CultureInfo.InvariantCulture)
+            : "none";
+        Log($"{reason}: single WoW process, PID {previous} -> {pid}");
+        RefreshProcesses(pid);
+        AttachPid(pid);
+    }
+
+    private void AttachPid(uint pid)
+    {
+        try
+        {
+            if (_moveSpeedEnabled) DisableMovementSpeed();
+            _session.Attach(pid);
+            AttachStatus.Text = $"attached (PID {pid})";
+            AttachStatus.Foreground = Brushes.DarkGreen;
+            Log($"attached to PID {pid}");
+        }
+        catch (Exception ex)
+        {
+            AttachStatus.Text = "not attached";
+            AttachStatus.Foreground = Brushes.DarkRed;
+            Log("[error] attach: " + ex.Message);
+        }
+        UpdateMapLabel();
+    }
+
+    private void UpdateMapLabel()
+    {
+        uint? map = null;
+        try
+        {
+            if (_session.IsAttached) map = _session.TryReadMapId();
+        }
+        catch { /* label is informational only */ }
+        MapLabel.Text = map.HasValue ? $"map:{map.Value}" : string.Empty;
     }
 
     private void ApplySettingsAndLoadData()
@@ -218,6 +342,10 @@ public partial class MainWindow : Window
             .ToString(CultureInfo.InvariantCulture);
         MoveSpeedInput.Text = _settings.GetDouble("movement_speed_value", 7.0)
             .ToString(CultureInfo.InvariantCulture);
+        int pollSeconds = _settings.GetInt("pid_poll_seconds", DefaultPidPollSeconds);
+        _pidPollSeconds = pollSeconds >= 1 && pollSeconds <= 3600 ? pollSeconds : DefaultPidPollSeconds;
+        PidPollInput.Text = _pidPollSeconds.ToString(CultureInfo.InvariantCulture);
+        _pidPollTimer.Interval = TimeSpan.FromSeconds(_pidPollSeconds);
 
         if (_settings.GetBool("wpf_window_saved", false))
         {
@@ -259,15 +387,17 @@ public partial class MainWindow : Window
         if (File.Exists(favPath)) LoadFavouritesFromPath(favPath, preferredCategory);
     }
 
-    private void LoadFavouritesFromPath(string path, string? preferredCategory = null)
+    private void LoadFavouritesFromPath(string path, string? preferredCategory = null,
+                                        double restoreOffset = 0)
     {
         try
         {
             _session.LoadFavourites(path);
             _favlistPath = path;
-            RefreshCategoryCombo(preferredCategory);
             _allFavourites = _session.AllFavourites();
-            RefreshFavouritesView();
+            RefreshCategoryCombo(preferredCategory);
+            RefreshFavouritesView(restoreOffset);
+            RebuildNavigation();
             RegisterHotkeys();
             Log($"loaded {_allFavourites.Count} favourites from {path}");
         }
@@ -306,6 +436,7 @@ public partial class MainWindow : Window
                 _settings.Set("speed_value", global);
             if (TryParseSpeed(MoveSpeedInput.Text, out double movement))
                 _settings.Set("movement_speed_value", movement);
+            _settings.Set("pid_poll_seconds", _pidPollSeconds);
             if (_favlistPath is not null) _settings.Set("favlist_path", _favlistPath);
             _settings.Save();
         }
@@ -319,7 +450,8 @@ public partial class MainWindow : Window
             Log("[warn] no favlist loaded yet");
             return;
         }
-        LoadFavouritesFromPath(_favlistPath);
+        // TeleportHackOnVanilla 5df337f: reload keeps the list scroll position.
+        LoadFavouritesFromPath(_favlistPath, CurrentCategoryForCrud(), FavouritesScrollOffset());
     }
 
     private void SaveFavourites()
@@ -337,20 +469,32 @@ public partial class MainWindow : Window
         catch (Exception ex) { Log("[error] save favourites: " + ex.Message); }
     }
 
+    // Callers refresh the list view themselves afterwards.
     private void RefreshCategoryCombo(string? preferred = null)
     {
-        CategoryCombo.Items.Clear();
-        CategoryCombo.Items.Add(TeleportSession.AllCategory);
+        _updatingCategories = true;
         try
         {
-            foreach (var category in _session.Categories()) CategoryCombo.Items.Add(category);
+            CategoryCombo.Items.Clear();
+            CategoryCombo.Items.Add(TeleportSession.AllCategory);
+            try
+            {
+                foreach (var category in _session.Categories()) CategoryCombo.Items.Add(category);
+            }
+            catch (Exception ex) { Log("[error] enumerate categories: " + ex.Message); }
+            int preferredIndex = preferred is null ? -1 : CategoryCombo.Items.IndexOf(preferred);
+            CategoryCombo.SelectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
         }
-        catch (Exception ex) { Log("[error] enumerate categories: " + ex.Message); }
-        int preferredIndex = preferred is null ? -1 : CategoryCombo.Items.IndexOf(preferred);
-        CategoryCombo.SelectedIndex = preferredIndex >= 0 ? preferredIndex : 0;
+        finally { _updatingCategories = false; }
     }
 
-    private void RefreshFavouritesView()
+    private ScrollViewer? FavouritesScrollViewer() => FindDescendant<ScrollViewer>(FavouritesView);
+
+    private double FavouritesScrollOffset() => FavouritesScrollViewer()?.VerticalOffset ?? 0;
+
+    // `restoreOffset` > 0 scrolls back to where the list was before the
+    // refresh (reload / edit keep the user's place in the list).
+    private void RefreshFavouritesView(double restoreOffset = 0)
     {
         _rows.Clear();
         var needle = SearchBox.Text?.Trim() ?? string.Empty;
@@ -363,6 +507,58 @@ public partial class MainWindow : Window
                 continue;
             _rows.Add(new FavouriteRow(point));
         }
+        if (restoreOffset > 0)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+                FavouritesScrollViewer()?.ScrollToVerticalOffset(restoreOffset)));
+        }
+    }
+
+    private void RefreshRecentView()
+    {
+        _recentRows.Clear();
+        try
+        {
+            foreach (var entry in _session.RecentTeleports()) _recentRows.Add(new RecentRow(entry));
+        }
+        catch (Exception ex) { Log("[error] recent teleports: " + ex.Message); }
+    }
+
+    // Same buckets/order as TeleportHackOnVanilla's RefreshCategoryGrid().
+    private void RebuildNavigation()
+    {
+        NavigationPanel.Children.Clear();
+        try
+        {
+            var categories = CategoryCombo.Items.Cast<object>()
+                .Select(item => item as string ?? string.Empty)
+                .Where(name => name.Length > 0 && name != TeleportSession.AllCategory);
+            foreach (var group in TeleportSession.GroupCategories(categories))
+            {
+                NavigationPanel.Children.Add(new TextBlock
+                {
+                    Text = $"【{group.Name}】",
+                    FontWeight = FontWeights.Bold,
+                    Margin = new Thickness(2, 10, 2, 4),
+                });
+                if (group.Categories.Count == 0) continue;
+                var grid = new UniformGrid { Columns = 3 };
+                foreach (string category in group.Categories)
+                {
+                    var button = new Button
+                    {
+                        Content = category,
+                        Tag = category,
+                        Margin = new Thickness(2),
+                        Padding = new Thickness(6, 3, 6, 3),
+                    };
+                    button.Click += NavigationButton_Click;
+                    grid.Children.Add(button);
+                }
+                NavigationPanel.Children.Add(grid);
+            }
+        }
+        catch (Exception ex) { Log("[error] category navigation: " + ex.Message); }
     }
 
     private static bool MatchesCategory(FavouritePoint point, string category)
@@ -375,15 +571,28 @@ public partial class MainWindow : Window
             Log("[warn] pick a favourite first");
             return;
         }
+        TeleportPoint(row.Point, "teleported to");
+    }
+
+    // Map guard + write + recent entry all happen natively (th_session_teleport_ex).
+    private void TeleportPoint(FavouritePoint point, string verb)
+    {
         try
         {
-            var p = row.Point;
-            _session.Teleport(p.X, p.Y, p.Z, p.Orientation);
-            Log(p.Orientation.HasValue
-                ? $"teleported to '{p.Description}' (r={p.Orientation.Value:0.###})"
-                : $"teleported to '{p.Description}'");
+            _session.TeleportTo(point);
+            Log($"{verb} '{point.Description}'{DescribeExtras(point.Orientation, point.MapId)}");
+            RefreshRecentView();
         }
-        catch (Exception ex) { Log("[error] teleport: " + ex.Message); }
+        catch (Exception ex) { Log("[warn] " + ex.Message); }
+    }
+
+    private static string DescribeExtras(double? orientation, uint? mapId)
+    {
+        string text = string.Empty;
+        if (orientation.HasValue)
+            text += " r=" + orientation.Value.ToString("0.###", CultureInfo.InvariantCulture);
+        if (mapId.HasValue) text += " map=" + mapId.Value.ToString(CultureInfo.InvariantCulture);
+        return text.Length > 0 ? " (" + text.Trim() + ")" : string.Empty;
     }
 
     // -------------------------------------------------------------------------
@@ -432,10 +641,12 @@ public partial class MainWindow : Window
         return false;
     }
 
-    private bool RequirePosition(out double x, out double y, out double z, out double? r)
+    private bool RequirePosition(out double x, out double y, out double z, out double? r,
+                                 out uint? map)
     {
         x = y = z = 0;
         r = null;
+        map = null;
         try
         {
             var position = _session.ReadPosition();
@@ -443,6 +654,7 @@ public partial class MainWindow : Window
             y = position.Y;
             z = position.Z;
             r = position.Orientation;
+            map = position.MapId;
             return true;
         }
         catch (Exception ex)
@@ -456,10 +668,11 @@ public partial class MainWindow : Window
     {
         if (!RequireSelectedIndex(out int index) ||
             !RequireDescription(out string description) ||
-            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+            !RequirePosition(out double x, out double y, out double z, out double? r,
+                             out uint? map)) return;
         try
         {
-            _session.InsertInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            _session.InsertInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r, map);
             AfterFavlistMutation($"inserted '{description}' before row {index}",
                 PreferredCategoryForDescription(description));
         }
@@ -470,10 +683,11 @@ public partial class MainWindow : Window
     {
         if (!RequireSelectedIndex(out int index) ||
             !RequireDescription(out string description) ||
-            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+            !RequirePosition(out double x, out double y, out double z, out double? r,
+                             out uint? map)) return;
         try
         {
-            _session.AppendInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            _session.AppendInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r, map);
             AfterFavlistMutation($"inserted '{description}' after row {index}",
                 PreferredCategoryForDescription(description));
         }
@@ -484,10 +698,11 @@ public partial class MainWindow : Window
     {
         if (!RequireSelectedIndex(out int index) ||
             !RequireDescription(out string description) ||
-            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+            !RequirePosition(out double x, out double y, out double z, out double? r,
+                             out uint? map)) return;
         try
         {
-            _session.ReplaceInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r);
+            _session.ReplaceInCategory(CurrentCategoryForCrud(), index, description, x, y, z, r, map);
             AfterFavlistMutation($"updated row {index} ('{description}')",
                 PreferredCategoryForDescription(description));
         }
@@ -551,13 +766,14 @@ public partial class MainWindow : Window
         var category = CurrentCategoryForCrud();
         int localCount = _allFavourites.Count(point => MatchesCategory(point, category));
         if (!RequireDescription(out string description) ||
-            !RequirePosition(out double x, out double y, out double z, out double? r)) return;
+            !RequirePosition(out double x, out double y, out double z, out double? r,
+                             out uint? map)) return;
         try
         {
             if (localCount == 0)
-                _session.InsertInCategory(category, 0, description, x, y, z, r);
+                _session.InsertInCategory(category, 0, description, x, y, z, r, map);
             else
-                _session.AppendInCategory(category, localCount - 1, description, x, y, z, r);
+                _session.AppendInCategory(category, localCount - 1, description, x, y, z, r, map);
             AfterFavlistMutation($"appended '{description}' after the last row of {category}",
                 PreferredCategoryForDescription(description));
         }
@@ -575,9 +791,11 @@ public partial class MainWindow : Window
     private void AfterFavlistMutation(string message, string? preferredCategory = null)
     {
         string previousCategory = preferredCategory ?? CurrentCategoryForCrud();
+        double offset = previousCategory == CurrentCategoryForCrud() ? FavouritesScrollOffset() : 0;
         _allFavourites = _session.AllFavourites();
         RefreshCategoryCombo(previousCategory);
-        RefreshFavouritesView();
+        RefreshFavouritesView(offset);
+        RebuildNavigation();
         RegisterHotkeys();
         Log(message);
     }
@@ -606,6 +824,7 @@ public partial class MainWindow : Window
             _allFavourites = _session.AllFavourites();
             RefreshCategoryCombo(previous);
             RefreshFavouritesView();
+            RebuildNavigation();
             RegisterHotkeys();
         }
         catch (Exception ex) { Log("[error] import: " + ex.Message); }
@@ -688,6 +907,8 @@ public partial class MainWindow : Window
             catch { /* best effort on teardown */ }
         }
         _moveSpeedTimer.Stop();
+        _pidPollTimer.Stop();
+        _statusTimer.Stop();
         _hotkeys.Dispose();
         if (_windowSource is not null)
         {
@@ -705,6 +926,19 @@ public partial class MainWindow : Window
     private static bool TryParseSpeed(string text, out double value)
         => double.TryParse(text, NumberStyles.Float,
             CultureInfo.InvariantCulture, out value);
+
+    private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+    {
+        int count = VisualTreeHelper.GetChildrenCount(root);
+        for (int i = 0; i < count; ++i)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) return match;
+            T? nested = FindDescendant<T>(child);
+            if (nested is not null) return nested;
+        }
+        return null;
+    }
 
     private void Log(string message)
     {
@@ -724,6 +958,20 @@ public partial class MainWindow : Window
         public string ZText => Point.Z.ToString("0.###", CultureInfo.InvariantCulture);
         public string RText => Point.Orientation.HasValue
             ? Point.Orientation.Value.ToString("0.###", CultureInfo.InvariantCulture)
+            : "-";
+        public string MapText => Point.MapId.HasValue
+            ? Point.MapId.Value.ToString(CultureInfo.InvariantCulture)
+            : "-";
+    }
+
+    private sealed record RecentRow(RecentEntry Entry)
+    {
+        public string Label => Entry.Label;
+        public string XText => Entry.X.ToString("0.###", CultureInfo.InvariantCulture);
+        public string YText => Entry.Y.ToString("0.###", CultureInfo.InvariantCulture);
+        public string ZText => Entry.Z.ToString("0.###", CultureInfo.InvariantCulture);
+        public string MapText => Entry.MapId.HasValue
+            ? Entry.MapId.Value.ToString(CultureInfo.InvariantCulture)
             : "-";
     }
 

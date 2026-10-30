@@ -7,6 +7,8 @@ namespace {
 const std::vector<uintptr_t> kVanillaOffsetsX = {0x88, 0x28, 0x708, 0xC, 0x2A8};
 const std::vector<uintptr_t> kVanillaOffsetsY = {0x88, 0x28, 0x6B4, 0x3C, 0x2C8};
 const std::vector<uintptr_t> kVanillaOffsetsZ = {0x88, 0x28, 0x7C8, 0x1A4, 0x54};
+// Facing follows the destination Z float ($addrZ + 4 in hack.au3).
+constexpr uintptr_t kVanillaFacingAfterZ = 4;
 
 GameVersion make_1_12_1() {
     GameVersion v;
@@ -16,9 +18,11 @@ GameVersion make_1_12_1() {
     v.curr_pos_x = 0x00C7B548;
     v.curr_pos_y = 0x00C7B544;
     v.curr_pos_z = 0x00C7B54C;
+    v.curr_pos_swap_xy = true; // ReadPosition(): [CurrY, CurrX, CurrZ]
     v.anti_jump = 0x7C625F;
     v.jump_gravity = 0x7C6272;
     v.player_name = 0xC27D88;
+    v.map_id = 0x00B4E378;
     v.autoloot_2 = 0x4C1ECF;
     v.patch_loot = 0x4C21C0;
     v.patch_loot2 = 0x4C28FF;
@@ -27,6 +31,7 @@ GameVersion make_1_12_1() {
     v.dst_x_offsets = kVanillaOffsetsX;
     v.dst_y_offsets = kVanillaOffsetsY;
     v.dst_z_offsets = kVanillaOffsetsZ;
+    v.dst_r_offset = kVanillaFacingAfterZ;
     return v;
 }
 
@@ -38,9 +43,11 @@ GameVersion make_1_12_3() {
     v.curr_pos_x = 0x00C7FC64;
     v.curr_pos_y = 0x00C7FC68;
     v.curr_pos_z = 0x00C7FC6C;
+    v.curr_pos_swap_xy = false; // ReadPosition(): [CurrX, CurrY, CurrZ]
     v.anti_jump = 0x7C973F;
     v.jump_gravity = 0x7C9752;
     v.player_name = 0xC2C430;
+    v.map_id = 0x00B52A20;
     v.autoloot_2 = 0x4C2CBF;
     v.patch_loot = 0x4C2FB0;
     v.patch_loot2 = 0x4C36EF;
@@ -49,6 +56,7 @@ GameVersion make_1_12_3() {
     v.dst_x_offsets = kVanillaOffsetsX;
     v.dst_y_offsets = kVanillaOffsetsY;
     v.dst_z_offsets = kVanillaOffsetsZ;
+    v.dst_r_offset = kVanillaFacingAfterZ;
     return v;
 }
 

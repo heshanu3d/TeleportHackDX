@@ -384,6 +384,108 @@ void test_null_and_dangling_argument_guards() {
           "last_error rejects NULL session");
     check(th_process_list(nullptr, nullptr, 0) == -1,
           "process_list rejects NULL executable");
+    check(th_recent_count(nullptr) == -1, "recent_count rejects NULL session");
+    check(th_session_teleport_ex(nullptr, "x", 0, 0, 0, 0, 0, 0, 0) == -1,
+          "teleport_ex rejects NULL session");
+    check(th_favourites_get_map_id(nullptr, 0, nullptr, nullptr) == -1,
+          "get_map_id rejects NULL session");
+}
+
+void test_map_ids_through_the_abi(const std::filesystem::path& dir) {
+    const std::filesystem::path path = dir / "capi_map.fav";
+    {
+        std::ofstream out(path, std::ios::binary);
+        out << "a#1#2#3#0#0\n";      // facing 0 + map 0 (both explicit)
+        out << "b#4#5#6#1.5#230\n";  // facing + map
+        out << "c#7#8#9#\n";         // neither
+    }
+    th_session* session = th_session_create();
+    if (!session) return;
+    check(th_favourites_load(session, path.string().c_str()) == 0, "map favlist loads");
+    check(th_favourites_count(session) == 3, "three map rows loaded");
+
+    uint32_t map = 999;
+    int32_t has_map = -1;
+    check(th_favourites_get_map_id(session, 0, &map, &has_map) == 0 && has_map == 1 && map == 0,
+          "explicit map 0 is reported as present");
+    check(th_favourites_get_map_id(session, 1, &map, &has_map) == 0 && has_map == 1 &&
+              map == 230,
+          "map 230 is reported");
+    map = 999;
+    check(th_favourites_get_map_id(session, 2, &map, &has_map) == 0 && has_map == 0 &&
+              map == 999,
+          "missing map reports has_map=0 and leaves the value untouched");
+    check(th_favourites_get_map_id(session, 3, &map, &has_map) == -1, "bad index rejected");
+
+    // Map-aware CRUD keeps the map; the legacy entry points create map-less rows.
+    check(th_favourites_append_in_category_ex(session, TH_CAPI_ALL_CATEGORY, 2, "d", 10, 11, 12,
+                                              1, 0.5, 1, 571) == 0,
+          "append_ex with a map succeeds");
+    check(th_favourites_replace_in_category_ex(session, TH_CAPI_ALL_CATEGORY, 0, "a2", 1, 2, 3,
+                                               0, 0, 1, 1) == 0,
+          "replace_ex with a map succeeds");
+    check(th_favourites_insert_in_category_ex(session, TH_CAPI_ALL_CATEGORY, 0, "first", 0, 0, 0,
+                                              0, 0, 0, 0) == 0,
+          "insert_ex without a map succeeds");
+    check(th_favourites_insert_in_category(session, TH_CAPI_ALL_CATEGORY, 0, "legacy", 0, 0, 0, 0,
+                                           0) == 0,
+          "legacy insert still works");
+    check(th_favourites_insert_in_category_ex(session, TH_CAPI_ALL_CATEGORY, 99, "bad", 0, 0, 0,
+                                              0, 0, 1, 1) == -1,
+          "out-of-range insert_ex rejected");
+
+    const std::filesystem::path saved = dir / "capi_map_saved.fav";
+    check(th_favourites_save(session, saved.string().c_str()) == 6, "map rows save");
+    std::ifstream saved_stream(saved, std::ios::binary);
+    std::stringstream saved_text;
+    saved_text << saved_stream.rdbuf();
+    check(saved_text.str() ==
+              "legacy#0#0#0#\n"
+              "first#0#0#0#\n"
+              "a2#1#2#3##1\n"
+              "b#4#5#6#1.5#230\n"
+              "c#7#8#9#\n"
+              "d#10#11#12#0.5#571\n",
+          "saved favlist carries the 6th map field only where present");
+
+    // Teleport/map entry points fail cleanly while detached; nothing recorded.
+    double x = 0;
+    check(th_session_read_position_ex(session, &x, &x, &x, &x, nullptr, &map, &has_map) == -1,
+          "read_position_ex without attach fails");
+    check(th_session_read_map_id(session, &map) == -1, "read_map_id without attach fails");
+    check(th_session_teleport_ex(session, "b", 4, 5, 6, 1, 1.5, 1, 230) == -1,
+          "teleport_ex without attach fails");
+    check(th_recent_count(session) == 0, "failed teleports are not recorded");
+    check(th_recent_get_label(session, 0, nullptr, 0) == -1, "recent label bounds");
+    check(th_recent_get_position(session, 0, &x, &x, &x, nullptr, nullptr, nullptr, nullptr) ==
+              -1,
+          "recent position bounds");
+    check(th_recent_teleport(session, 0) == -1, "recent teleport without entries fails");
+
+    th_session_destroy(session);
+}
+
+void test_category_groups_and_about() {
+    check(th_category_group_count() == 5, "five navigation groups");
+    char name[64] = {0};
+    check(th_category_group_name(1, name, sizeof(name)) > 0 &&
+              std::string(name) == "\xe4\xb8\x9c\xe9\x83\xa8\xe7\x8e\x8b\xe5\x9b\xbd",
+          "group 1 is Eastern Kingdoms");
+    check(th_category_group_name(5, name, sizeof(name)) == -1, "bad group index rejected");
+    check(th_category_group_of("\xe7\xba\xb3\xe6\xa0\xbc\xe5\x85\xb0") == 3,
+          "Nagrand belongs to The Burning Crusade");
+    check(th_category_group_of("unknown") == 0, "unknown categories go to misc");
+    check(th_category_group_of(nullptr) == -1, "NULL category rejected");
+
+    check(th_build_version(nullptr, 0) > 0, "build version reported");
+    char author[16] = {0};
+    check(th_app_author(author, sizeof(author)) == 7 && std::string(author) == "shan.he",
+          "author reported");
+    const int32_t notes_size = th_release_notes(nullptr, 0);
+    std::string notes(static_cast<size_t>(notes_size > 0 ? notes_size : 0) + 1, '\0');
+    th_release_notes(notes.data(), static_cast<int32_t>(notes.size()));
+    check(notes_size > 0 && notes.find("0.1.3") != std::string::npos,
+          "release notes are exported");
 }
 
 } // namespace
@@ -401,6 +503,8 @@ int main() {
     test_favourites_crud_and_save(dir);
     test_teleport_lua_requires_attachment();
     test_null_and_dangling_argument_guards();
+    test_map_ids_through_the_abi(dir);
+    test_category_groups_and_about();
 
     std::error_code ignored;
     std::filesystem::remove_all(dir, ignored);

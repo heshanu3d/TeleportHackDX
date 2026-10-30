@@ -1,11 +1,14 @@
 // Main overlay UI: owns every service and renders the ImGui frame that
 // replaces TeleportHackOnVanilla's AutoIt/Qt window.
 //
-// Layout intentionally mirrors
-// TeleportHackOnVanilla/win/src/teleport_hack/presentation/main_window.py:
-// [process list, Attach mode only] -> category combo -> search ->
-// favourites table -> description input -> toggles row -> CRUD rows ->
-// Teleport button -> speed row -> log.
+// Layout mirrors TeleportHackOnVanilla's tabbed AutoIt window (d25a20f):
+// [process list, Attach mode only] -> client row -> tabs
+//   坐标点   category/search, favourites table, 最近使用的坐标, description,
+//            CRUD rows, Teleport button
+//   分类导航 grouped 3-column category grid (click -> back to 坐标点)
+//   设置     step/patch toggles, speeds, PID polling, paths, import/export
+//   关于     version, author, release notes
+// -> log (always visible).
 //
 // This class is shared verbatim between two executables (see
 // CMakeLists.txt): the injected DirectX hook DLL (BackendMode::InProcess,
@@ -33,6 +36,7 @@
 #include "services/favourites_service.h"
 #include "services/feature_service.h"
 #include "services/hotkey_service.h"
+#include "services/recent_teleports.h"
 #include "services/teleport_service.h"
 #include "ui/log_view.h"
 #include "util/process_list.h"
@@ -93,6 +97,7 @@ private:
     FavouritesService favourites_;
     FavouritesPorter porter_;
     std::optional<HotkeyService> hotkeys_;
+    RecentTeleports recent_;
 
     LogView log_;
 
@@ -107,12 +112,15 @@ private:
     int selected_row_ = -1; // index within the currently *displayed* rows
     char import_path_buf_[512] = {0};
     char export_path_buf_[512] = {0};
-    bool show_settings_ = false;
     double next_layout_snapshot_time_ = 0.0;
+    // 分类导航 -> 坐标点: the tab switch is applied on the next frame.
+    bool focus_points_tab_ = false;
 
     // Attach-mode only: process picker state.
     std::vector<ProcessEntry> process_list_;
     unsigned long selected_pid_ = 0;
+    int pid_poll_input_ = kDefaultPidPollSeconds; // 设置 tab edit buffer
+    double next_pid_poll_time_ = 0.0;             // ImGui::GetTime() seconds
 
     // ---- helpers ----
     void switch_version(const std::string& name);
@@ -121,28 +129,40 @@ private:
     void log(const std::string& msg);
     void reload_process_list();
     void attach_to_pid(unsigned long pid);
+    // TeleportHackOnVanilla's SelectOnlyWowPid()/CheckWowPidForReload():
+    // refreshes the process list and, when exactly one WoW.exe runs and it
+    // isn't the attached PID, attaches to it. Attach mode only.
+    void auto_attach_single_process(const char* reason);
     bool set_desktop_always_on_top(bool enabled);
+    void select_category(const std::string& name);
 
     std::vector<TeleportPoint> displayed_points() const;
     std::optional<TeleportPoint> current_point() const;
 
-    void do_teleport(const Position& pos);
+    // Map guard -> instant or step teleport -> 最近使用的坐标 entry.
+    void do_teleport(const Position& pos, const std::string& label);
     void safe_toggle(const std::string& name,
                       const std::function<bool(bool&)>& fn);
 
     // ImGui section renderers
     void render_process_list();
     void render_version_row();
+    void render_points_tab();
+    void render_navigation_tab();
+    void render_settings_tab();
+    void render_about_tab();
     void render_category_and_search();
     void render_table();
+    void render_recent();
     void render_desc_input();
     void render_toggles_row();
     void render_crud_rows();
     void render_teleport_button();
     void render_speed_row();
+    void render_pid_poll_row();
+    void render_paths();
     void render_import_export();
     void render_log();
-    void render_settings_popup();
 };
 
 } // namespace th

@@ -13,8 +13,45 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Computed before configuring so the same version string is compiled
+      # into every binary's "关于" tab (TH_BUILD_VERSION) and used for the
+      # artifact name.
+      - name: Compute version string
+        id: vars
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            SUFFIX=""
+          else
+            LATEST_TAG=""
+            while IFS= read -r TAG; do
+              if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                LATEST_TAG="$TAG"
+                break
+              fi
+            done < <(git tag --merged HEAD --sort=-version:refname)
+            BASE_VERSION="${LATEST_TAG#v}"
+            if [[ -z "$BASE_VERSION" ]]; then
+              BASE_VERSION=$(tr -d '[:space:]' < VERSION)
+            fi
+            if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Invalid semantic version: $BASE_VERSION" >&2
+              exit 1
+            fi
+            IFS=. read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+            VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
+            SUFFIX="rc"
+          fi
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid semantic version: $VERSION" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}${SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=TeleportHackDX-v${VERSION}${SUFFIX}-win32" >> "$GITHUB_OUTPUT"
+
       - name: Configure (CMake, Win32/x86)
-        run: cmake -S . -B build -A Win32
+        run: cmake -S . -B build -A Win32 "-DTH_BUILD_VERSION=${{ steps.vars.outputs.version }}"
 
       - name: Build (Release)
         run: cmake --build build --config Release --parallel
@@ -50,39 +87,6 @@ jobs:
           --runtime win-x86
           --no-self-contained
           --output publish/wpf
-
-      - name: Compute version string
-        id: vars
-        shell: bash
-        run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            VERSION="${GITHUB_REF_NAME#v}"
-            SUFFIX=""
-          else
-            LATEST_TAG=""
-            while IFS= read -r TAG; do
-              if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                LATEST_TAG="$TAG"
-                break
-              fi
-            done < <(git tag --merged HEAD --sort=-version:refname)
-            BASE_VERSION="${LATEST_TAG#v}"
-            if [[ -z "$BASE_VERSION" ]]; then
-              BASE_VERSION=$(tr -d '[:space:]' < VERSION)
-            fi
-            if [[ ! "$BASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "Invalid semantic version: $BASE_VERSION" >&2
-              exit 1
-            fi
-            IFS=. read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
-            VERSION="$MAJOR.$MINOR.$((PATCH + 1))"
-            SUFFIX="rc"
-          fi
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Invalid semantic version: $VERSION" >&2
-            exit 1
-          fi
-          echo "artifact_name=TeleportHackDX-v${VERSION}${SUFFIX}-win32" >> "$GITHUB_OUTPUT"
 
       - name: Prepare flat artifact folder
         shell: pwsh

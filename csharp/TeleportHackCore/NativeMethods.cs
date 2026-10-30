@@ -194,6 +194,88 @@ internal static class NativeMethods
                                                                   int localIndex,
                                                                   byte[] newDescription);
 
+    // ---- map IDs + facing (TeleportHackOnVanilla map sync) -------------
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_session_read_position_ex(IntPtr session, out double x,
+                                                          out double y, out double z,
+                                                          out double r, out int hasOrientation,
+                                                          out uint mapId, out int hasMap);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_session_read_map_id(IntPtr session, out uint mapId);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_session_teleport_ex(IntPtr session, byte[] label, double x,
+                                                     double y, double z, int hasOrientation,
+                                                     double r, int hasMap, uint mapId);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_get_map_id(IntPtr session, int index, out uint mapId,
+                                                       out int hasMap);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_insert_in_category_ex(IntPtr session, byte[] category,
+                                                                   int localIndex,
+                                                                   byte[] description, double x,
+                                                                   double y, double z, int hasR,
+                                                                   double r, int hasMap,
+                                                                   uint mapId);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_append_in_category_ex(IntPtr session, byte[] category,
+                                                                   int localIndex,
+                                                                   byte[] description, double x,
+                                                                   double y, double z, int hasR,
+                                                                   double r, int hasMap,
+                                                                   uint mapId);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_favourites_replace_in_category_ex(IntPtr session, byte[] category,
+                                                                    int localIndex,
+                                                                    byte[] description, double x,
+                                                                    double y, double z, int hasR,
+                                                                    double r, int hasMap,
+                                                                    uint mapId);
+
+    // ---- recent teleports -------------------------------------------------
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_recent_count(IntPtr session);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_recent_get_label(IntPtr session, int index, byte[]? buffer,
+                                                  int bufferSize);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_recent_get_position(IntPtr session, int index, out double x,
+                                                     out double y, out double z, out double r,
+                                                     out int hasOrientation, out uint mapId,
+                                                     out int hasMap);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_recent_teleport(IntPtr session, int index);
+
+    // ---- category navigation groups + about (no session) ----------------
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_category_group_count();
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_category_group_name(int group, byte[]? buffer, int bufferSize);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_category_group_of(byte[] category);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_build_version(byte[]? buffer, int bufferSize);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_app_author(byte[]? buffer, int bufferSize);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_release_notes(byte[]? buffer, int bufferSize);
+
     // ---- helpers ---------------------------------------------------------
 
     /// <summary>
@@ -232,6 +314,26 @@ internal static class NativeMethods
         if (needed <= 0) return string.Empty;
         var buffer = new byte[needed + 1];
         getter(session, index, buffer, buffer.Length);
+        return Encoding.UTF8.GetString(buffer, 0, needed);
+    }
+
+    /// <summary>Two-call read for session-less string getters.</summary>
+    public static string ReadStaticUtf8String(Func<byte[]?, int, int> getter)
+    {
+        int needed = getter(null, 0);
+        if (needed <= 0) return string.Empty;
+        var buffer = new byte[needed + 1];
+        getter(buffer, buffer.Length);
+        return Encoding.UTF8.GetString(buffer, 0, needed);
+    }
+
+    /// <summary>Two-call read for session-less indexed string getters.</summary>
+    public static string ReadIndexedStaticUtf8String(int index, Func<int, byte[]?, int, int> getter)
+    {
+        int needed = getter(index, null, 0);
+        if (needed <= 0) return string.Empty;
+        var buffer = new byte[needed + 1];
+        getter(index, buffer, buffer.Length);
         return Encoding.UTF8.GetString(buffer, 0, needed);
     }
 

@@ -7,10 +7,15 @@
 namespace th {
 
 namespace {
-using Signature = std::tuple<std::string, double, double, double, std::optional<double>>;
+// Description, coordinates, facing and map all participate: the same
+// coordinates with "no facing / facing 0 / other facing" or "no map / map
+// 0 / other map" are distinct records, like the AutoIt original's text rows.
+using Signature = std::tuple<std::string, double, double, double, std::optional<double>,
+                             std::optional<uint32_t>>;
 
 Signature signature_of(const TeleportPoint& p) {
-    return {p.description, p.position.x, p.position.y, p.position.z, p.position.orientation};
+    return {p.description, p.position.x, p.position.y, p.position.z, p.position.orientation,
+            p.position.map_id};
 }
 } // namespace
 

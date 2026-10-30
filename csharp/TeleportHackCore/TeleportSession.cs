@@ -27,8 +27,21 @@ public sealed class TeleportHackException : Exception
             : $"{operation} failed: {nativeDetail}";
 }
 
+/// <summary>
+/// One favlist.fav row. <see cref="Orientation"/> and <see cref="MapId"/> are
+/// optional: missing means "keep the current facing" / "don't verify the
+/// map", which is different from an explicit 0.
+/// </summary>
 public readonly record struct FavouritePoint(int Index, string Description, string Category,
-                                              double X, double Y, double Z, double? Orientation);
+                                              double X, double Y, double Z, double? Orientation,
+                                              uint? MapId = null);
+
+/// <summary>One "最近使用的坐标" entry (newest first).</summary>
+public readonly record struct RecentEntry(int Index, string Label, double X, double Y, double Z,
+                                          double? Orientation, uint? MapId);
+
+/// <summary>One "分类导航" group with its categories in favlist order.</summary>
+public sealed record CategoryGroup(string Name, IReadOnlyList<string> Categories);
 
 public readonly record struct ProcessRow(uint Pid, string ExeName);
 
@@ -160,14 +173,27 @@ public sealed class TeleportSession : IDisposable
 
     // ---- position / teleport --------------------------------------------
 
-    public (double X, double Y, double Z, double? Orientation) ReadPosition()
+    /// <summary>
+    /// Current position. Orientation / MapId are null when the client can't
+    /// report them (e.g. 1.12.x before the movement struct is loaded).
+    /// </summary>
+    public (double X, double Y, double Z, double? Orientation, uint? MapId) ReadPosition()
     {
         RequireHandle();
-        int rc = th_session_read_position(_handle, out double x, out double y, out double z,
-                                            out double r, out int hasR);
+        int rc = th_session_read_position_ex(_handle, out double x, out double y, out double z,
+                                             out double r, out int hasR, out uint mapId,
+                                             out int hasMap);
         if (rc != 0) throw new TeleportHackException("read position", LastError());
         double? orientation = hasR != 0 ? r : null;
-        return (x, y, z, orientation);
+        uint? map = hasMap != 0 ? mapId : null;
+        return (x, y, z, orientation, map);
+    }
+
+    /// <summary>Current map ID, or null while it can't be read.</summary>
+    public uint? TryReadMapId()
+    {
+        RequireHandle();
+        return th_session_read_map_id(_handle, out uint mapId) == 0 ? mapId : (uint?)null;
     }
 
     public void Teleport(double x, double y, double z, double? orientation = null)
@@ -177,6 +203,84 @@ public sealed class TeleportSession : IDisposable
         double r = orientation ?? 0.0;
         CheckResult(th_session_teleport(_handle, x, y, z, hasR, r), "teleport");
     }
+
+    /// <summary>
+    /// User-level teleport: refuses a destination on another map (the
+    /// exception message explains why), writes facing when present and
+    /// records the destination in <see cref="RecentTeleports"/>.
+    /// </summary>
+    public void TeleportTo(string label, double x, double y, double z, double? orientation,
+                           uint? mapId)
+    {
+        RequireHandle();
+        CheckResult(th_session_teleport_ex(_handle, ToUtf8(label), x, y, z,
+                                           orientation.HasValue ? 1 : 0, orientation ?? 0.0,
+                                           mapId.HasValue ? 1 : 0, mapId ?? 0u),
+                    "teleport");
+    }
+
+    public void TeleportTo(FavouritePoint point)
+        => TeleportTo(point.Description, point.X, point.Y, point.Z, point.Orientation,
+                      point.MapId);
+
+    // ---- recent teleports -----------------------------------------------
+
+    public IReadOnlyList<RecentEntry> RecentTeleports()
+    {
+        RequireHandle();
+        int count = th_recent_count(_handle);
+        if (count <= 0) return Array.Empty<RecentEntry>();
+        var list = new List<RecentEntry>(count);
+        for (int i = 0; i < count; ++i)
+        {
+            string label = ReadUtf8String(_handle, i, th_recent_get_label);
+            if (th_recent_get_position(_handle, i, out double x, out double y, out double z,
+                                       out double r, out int hasR, out uint mapId,
+                                       out int hasMap) != 0)
+                continue;
+            list.Add(new RecentEntry(i, label, x, y, z, hasR != 0 ? r : (double?)null,
+                                     hasMap != 0 ? mapId : (uint?)null));
+        }
+        return list;
+    }
+
+    /// <summary>Teleports to recent entry <paramref name="index"/> again.</summary>
+    public void TeleportRecent(int index)
+    {
+        RequireHandle();
+        CheckResult(th_recent_teleport(_handle, index), "recent teleport");
+    }
+
+    // ---- category navigation + about (no session needed) ----------------
+
+    /// <summary>
+    /// Buckets <paramref name="categories"/> into the five "分类导航" groups
+    /// (杂项, 东部王国, 卡利姆多, 燃烧的远征, 巫妖王之怒). The first group
+    /// starts with <see cref="AllCategory"/>; empty groups are kept.
+    /// </summary>
+    public static IReadOnlyList<CategoryGroup> GroupCategories(IEnumerable<string> categories)
+    {
+        int count = th_category_group_count();
+        var buckets = new List<List<string>>(count);
+        for (int i = 0; i < count; ++i) buckets.Add(new List<string>());
+        if (count > 0) buckets[0].Add(AllCategory);
+        foreach (string category in categories)
+        {
+            if (category == AllCategory) continue;
+            int group = th_category_group_of(ToUtf8(category));
+            if (group < 0 || group >= count) group = 0;
+            buckets[group].Add(category);
+        }
+        var groups = new List<CategoryGroup>(count);
+        for (int i = 0; i < count; ++i)
+            groups.Add(new CategoryGroup(ReadIndexedStaticUtf8String(i, th_category_group_name),
+                                         buckets[i]));
+        return groups;
+    }
+
+    public static string BuildVersion() => ReadStaticUtf8String(th_build_version);
+    public static string AppAuthor() => ReadStaticUtf8String(th_app_author);
+    public static string ReleaseNotes() => ReadStaticUtf8String(th_release_notes);
 
     // ---- speed -----------------------------------------------------------
 
@@ -255,7 +359,11 @@ public sealed class TeleportSession : IDisposable
         if (rc != 0)
             throw new TeleportHackException($"favourite [{index}] position", LastError());
         double? orientation = hasR != 0 ? r : null;
-        return new FavouritePoint(index, description, category, x, y, z, orientation);
+        uint? map = th_favourites_get_map_id(_handle, index, out uint mapId, out int hasMap) == 0 &&
+                    hasMap != 0
+            ? mapId
+            : null;
+        return new FavouritePoint(index, description, category, x, y, z, orientation, map);
     }
 
     /// <summary>
@@ -298,38 +406,41 @@ public sealed class TeleportSession : IDisposable
     }
 
     public void InsertInCategory(string category, int localIndex, string description,
-                                   double x, double y, double z, double? orientation = null)
+                                   double x, double y, double z, double? orientation = null,
+                                   uint? mapId = null)
     {
         RequireHandle();
-        int hasR = orientation.HasValue ? 1 : 0;
-        double r = orientation ?? 0.0;
         CheckResult(
-            th_favourites_insert_in_category(_handle, ToUtf8(category), localIndex,
-                                              ToUtf8(description), x, y, z, hasR, r),
+            th_favourites_insert_in_category_ex(_handle, ToUtf8(category), localIndex,
+                                                 ToUtf8(description), x, y, z,
+                                                 orientation.HasValue ? 1 : 0, orientation ?? 0.0,
+                                                 mapId.HasValue ? 1 : 0, mapId ?? 0u),
             "insert favourite");
     }
 
     public void AppendInCategory(string category, int localIndex, string description,
-                                   double x, double y, double z, double? orientation = null)
+                                   double x, double y, double z, double? orientation = null,
+                                   uint? mapId = null)
     {
         RequireHandle();
-        int hasR = orientation.HasValue ? 1 : 0;
-        double r = orientation ?? 0.0;
         CheckResult(
-            th_favourites_append_in_category(_handle, ToUtf8(category), localIndex,
-                                              ToUtf8(description), x, y, z, hasR, r),
+            th_favourites_append_in_category_ex(_handle, ToUtf8(category), localIndex,
+                                                 ToUtf8(description), x, y, z,
+                                                 orientation.HasValue ? 1 : 0, orientation ?? 0.0,
+                                                 mapId.HasValue ? 1 : 0, mapId ?? 0u),
             "append favourite");
     }
 
     public void ReplaceInCategory(string category, int localIndex, string description,
-                                    double x, double y, double z, double? orientation = null)
+                                    double x, double y, double z, double? orientation = null,
+                                    uint? mapId = null)
     {
         RequireHandle();
-        int hasR = orientation.HasValue ? 1 : 0;
-        double r = orientation ?? 0.0;
         CheckResult(
-            th_favourites_replace_in_category(_handle, ToUtf8(category), localIndex,
-                                                ToUtf8(description), x, y, z, hasR, r),
+            th_favourites_replace_in_category_ex(_handle, ToUtf8(category), localIndex,
+                                                  ToUtf8(description), x, y, z,
+                                                  orientation.HasValue ? 1 : 0, orientation ?? 0.0,
+                                                  mapId.HasValue ? 1 : 0, mapId ?? 0u),
             "replace favourite");
     }
 
@@ -342,7 +453,8 @@ public sealed class TeleportSession : IDisposable
 
     /// <summary>
     /// Persists the current in-memory list to `path` in favlist.fav's
-    /// canonical 5-field form. Returns the number of records written.
+    /// canonical form (5 fields, plus the map field for rows that carry one).
+    /// Returns the number of records written.
     /// </summary>
     public int SaveFavourites(string path)
     {

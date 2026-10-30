@@ -307,7 +307,7 @@ cmake --build . --config Release
 <ol>
   <li><span class="step-num">1</span>确保 <code>TeleportHackLauncher.exe</code> 和
     <code>TeleportHackDX.dll</code> 位于同一目录。</li>
-  <li><span class="step-num">2</span>在桌面版的 Settings 窗口填写 <strong>WoW.exe path</strong> 并保存，
+  <li><span class="step-num">2</span>在桌面版「设置」页的 <strong>WoW.exe path</strong> 填写路径并点 Save settings，
     或直接编辑同目录的 <code>settings.json</code>：
     <pre>"wow_exe_path": "D:\\Games\\World of Warcraft 3.3.5a\\WoW.exe"</pre>
     JSON 中的反斜杠需要写成两个。也可以填写相对于启动器目录的相对路径。</li>
@@ -325,49 +325,73 @@ cmake --build . --config Release
 
 
 <h2 id="usage">6. 界面使用说明</h2>
-<p>界面布局完全对应原 AutoIt/Python 版本的窗口结构：</p>
+<p>界面按原 AutoIt 版（TeleportHackOnVanilla 0.5.2）的分页结构组织：顶部是客户端版本（桌面版另有"WoW 进程"区域），
+中间是 <strong>坐标点 / 分类导航 / 设置 / 关于</strong> 四个页签，最下方的日志区始终可见。</p>
 <table>
   <tr><th>区域</th><th>说明</th></tr>
-  <tr><td><strong>client 下拉框</strong></td><td>选择当前客户端版本：1.12.1 / 1.12.3 / 3.3.5，默认 3.3.5，务必先选对再传送</td></tr>
+  <tr><td><strong>client 下拉框</strong></td><td>选择当前客户端版本：1.12.1 / 1.12.3 / 3.3.5，默认 3.3.5，务必先选对再传送。
+    能读到当前地图时右侧会显示 <code>map:xxx</code></td></tr>
+  <tr><th colspan="2">坐标点 页</th></tr>
   <tr><td><strong>分类 / 搜索</strong></td><td>按描述前缀（<code>-</code>之前的部分）分类筛选，搜索框按描述模糊匹配</td></tr>
-  <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z/r（r=朝向，无朝向时显示"-"）；单击选中一行，双击直接传送</td></tr>
+  <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z/r/map（r=朝向，map=地图 ID，缺省时显示"-"）；单击选中一行，双击直接传送</td></tr>
+  <tr><td><strong>最近使用的坐标</strong></td><td>最近 20 次成功传送的目的地（最新的在最上面，同一地图的同一坐标不会重复出现）；
+    双击某一行再次传送。只保存在内存里，重启后清空</td></tr>
   <tr><td><strong>描述输入框</strong></td><td>新增/编辑传送点时填写描述文本；注入版支持中文输入法，输入焦点离开后会把 IME 控制权还给 WoW 聊天框</td></tr>
-  <tr><td><strong>step 勾选框</strong></td><td>勾选后传送变为"分步平滑移动"，不勾选则瞬间传送</td></tr>
-  <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
-  <tr><td><strong>插前 / 插后 / 编辑 / 删除</strong></td><td>基于当前选中行 + 描述输入框 + 当前读取到的角色坐标，插入/编辑/删除该分类下的传送点</td></tr>
+  <tr><td><strong>插前 / 插后 / 编辑 / 删除</strong></td><td>基于当前选中行 + 描述输入框 + 当前读取到的角色坐标（含朝向和地图 ID），插入/编辑/删除该分类下的传送点</td></tr>
   <tr><td><strong>读取到炉石</strong></td><td>和"编辑"一样读取当前角色的 x/y/z/朝向，但写入的不是 favlist.fav，
     而是服务端 <code>Teleport.lua</code> 里 <code>local FAV</code> 表中<strong>当前选中行同名</strong>的那一条坐标数据
     （按描述文本精确匹配）。用于快速同步"超级炉石"NPC/道具菜单里的坐标，不需要重跑 <code>gen_fav.py</code> 整表重新生成。
-    需要先在 Settings 里配置 Teleport.lua 的路径，否则会提示未配置。</td></tr>
+    需要先在「设置」页配置 Teleport.lua 的路径，否则会提示未配置。</td></tr>
   <tr><td><strong>插后 表&amp;炉石</strong></td><td>执行一次普通"插后"，同时在 <code>Teleport.lua</code>
     的选中同名条目之后插入相同的新条目。新名称取描述输入框，mapId/x/y/z/朝向取当前 3.3.5 角色；
     仅 3.3.5 支持。和普通"插后"一样，列表改动仍需点击"保存"才会写入 favlist.fav。</td></tr>
-  <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt</td></tr>
-  <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点</td></tr>
+  <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt（保持列表滚动位置）</td></tr>
+  <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点；开启分步传送时按钮显示为 "Teleport (step)"。
+    <strong>传送点带有地图 ID 且与当前地图不同（或当前地图读不到）时会取消传送</strong>并在日志提示
+    "cross-map teleport is not supported"——写坐标无法跨地图，强行写入只会把角色传进虚空。没有地图 ID 的传送点不做检查</td></tr>
+  <tr><th colspan="2">分类导航 页</th></tr>
+  <tr><td><strong>分组分类网格</strong></td><td>把所有分类按 【杂项】（含"所有"）【东部王国】【卡利姆多】【燃烧的远征】【巫妖王之怒】分组，每行 3 个；
+    点击某个分类会切换到该分类并自动回到「坐标点」页</td></tr>
+  <tr><th colspan="2">设置 页</th></tr>
+  <tr><td><strong>传送设置</strong></td><td>step（分步传送）开关：勾选后传送变为"分步平滑移动"，不勾选则瞬间传送；以及步长/间隔参数（仅 ImGui 版）</td></tr>
+  <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
   <tr><td><strong>Global speed</strong></td><td>写入 3.3.5 玩家对象的全局速度字段 <code>0x814</code>；输入数值后点 Apply。1.12.x 不支持。</td></tr>
   <tr><td><strong>Move speed</strong></td><td>从 The Hitchhiker's Hack 移植的移动速度开关：输入数值后点 Enable，启用期间持续写入普通移动 <code>0x81C</code> 和游泳 <code>0x824</code>；点 Disable 后分别恢复默认值 7.0 和 4.7。仅 3.3.5 支持，DLL/EXE 均可用。</td></tr>
-  <tr><td><strong>Import / Export</strong></td><td>导入替换全部 / 合并去重导入 / 导出到指定 <code>.fav</code> 文件（弹出系统文件选择框）</td></tr>
-  <tr><td><strong>Settings</strong></td><td>调整分步移动参数，以及 favlist.fav、hotkey.txt、WoW.exe 和 Teleport.lua 的路径</td></tr>
-  <tr><td><strong>日志区</strong></td><td>所有操作结果、错误信息都会打印在这里</td></tr>
+  <tr><td><strong>WoW PID 查询间隔</strong></td><td>仅桌面版：每隔 N 秒（1–3600，默认 30）检查一次 WoW.exe；
+    只有一个 WoW 进程且 PID 与当前附加的不同时（例如客户端重启了）自动重新附加。点「应用」立即生效并保存到 settings.json</td></tr>
+  <tr><td><strong>文件路径</strong></td><td>favlist.fav、hotkey.txt、WoW.exe 和 Teleport.lua 的路径（ImGui 版），Apply paths + reload / Save settings</td></tr>
+  <tr><td><strong>导入 / 导出</strong></td><td>导入替换全部 / 合并去重导入 / 导出到指定 <code>.fav</code> 文件（弹出系统文件选择框）</td></tr>
+  <tr><th colspan="2">关于 页</th></tr>
+  <tr><td><strong>版本 / 作者 / 版本更新日志</strong></td><td>显示 CI 构建版本号（本地编译显示 dev）、作者和各版本更新内容</td></tr>
+  <tr><td><strong>日志区</strong></td><td>所有操作结果、错误信息都会打印在这里（所有页签共用）</td></tr>
 </table>
 <p>
   另外，<code>hotkey.txt</code> 里配置的组合键（如 <code>^1</code> = Ctrl+1）无论悬浮界面是否显示都会生效，
-  这一点和原版 AutoIt 的全局热键行为一致。
+  这一点和原版 AutoIt 的全局热键行为一致；热键传送同样带朝向和地图检查，并记入"最近使用的坐标"。
 </p>
 
 <h2 id="files">7. 数据文件格式</h2>
 <h3>favlist.fav</h3>
-<pre>描述#x#y#z#r
+<pre>描述#x#y#z#r#mapid
 斯坦索姆-入口#1234.5#-678.9#12.3#
-斯坦索姆-出口贴脸#1234.6#-678.8#12.3#1.857</pre>
+斯坦索姆-出口贴脸#1234.6#-678.8#12.3#1.857
+艾尔文森林-闪金镇#-9467.387#73.118#56.553#0.5#0
+副本60-示例-副本内部#1234.7#-678.7#12.3##230</pre>
 <p>描述里 <code>-</code> 前面的部分会被当作分类名，比如上面第一行会归到"斯坦索姆"分类下。</p>
 <p>
-  第 5 个字段 <code>r</code> 是朝向（弧度），<strong>仅 3.3.5 客户端支持</strong>，1.12.1/1.12.3
-  没有对应的内存偏移，永远读不到也不会写入。<code>r</code> 为空（行尾直接是 <code>#</code>）
-  表示"不改变当前朝向"——这和显式写 <code>r=0</code>（朝向正北）是两回事，程序会区分对待，
-  包括去重合并时也会把"无朝向"和"朝向=0"当成不同的记录。旧的 4 字段格式（没有第 5 个 <code>#</code>）
-  仍然兼容，加载后朝向为空；执行"保存"后会统一规范化成 5 字段格式。
+  第 5 个字段 <code>r</code> 是朝向（弧度），三个客户端都支持：3.3.5 读写玩家对象 <code>+0x7A8</code>，
+  1.12.1/1.12.3 读写移动结构里目标 Z 坐标之后的那个 float（与 AutoIt 版 <code>ReadFacingVanilla</code> 相同）。
+  <code>r</code> 为空（字段为空）表示"不改变当前朝向"——这和显式写 <code>r=0</code>（朝向正北）是两回事，程序会区分对待，
+  包括去重合并时也会把"无朝向"和"朝向=0"当成不同的记录。
   分步传送（勾选 step）时，朝向只会在最后一步生效，不会导致中途转向。
+</p>
+<p>
+  第 6 个字段 <code>mapid</code> 是地图 ID（0=东部王国，1=卡利姆多，530=外域，571=诺森德，副本/团本有各自的 ID），
+  与 TeleportHackOnVanilla 的格式一致。插前/插后/编辑/追加会自动记录当前地图；字段为空或不存在表示不检查地图，
+  而 <code>0</code> 是真实的地图（东部王国），两者不同。传送前如果目标地图与当前地图不一致会直接取消。
+  旧的 4 字段 / 5 字段格式和旧版多行格式仍然兼容；执行"保存"后统一写成 5 字段格式，带地图 ID 的行再追加第 6 个字段。
+  地图 ID 必须是非负整数，格式错误的整行会被跳过（与坐标数字写错时的处理一致）。
+  <br>注意：配套的 <code>gen_fav.py</code> 目前只接受 4/5 个字段，生成 Teleport.lua 前需要让它也忽略/使用第 6 个字段。
 </p>
 
 <h3>hotkey.txt</h3>
@@ -381,7 +405,7 @@ cmake --build . --config Release
 <h3>settings.json</h3>
 <p>
   首次运行会自动生成在 DLL/EXE 同目录下，记录两种运行模式共用的分步移动参数、上次选择的分类、
-  速度值等；桌面版原生窗口的位置和大小也记录在这里。注入 DLL 和桌面 EXE 的 ImGui 布局则分别
+  速度值、桌面版的 WoW PID 查询间隔（<code>pid_poll_seconds</code>，1–3600 秒，默认 30）等；桌面版原生窗口的位置和大小也记录在这里。注入 DLL 和桌面 EXE 的 ImGui 布局则分别
   保存到 <code>dll_imgui_layout</code> 和 <code>desktop_imgui_layout</code> 字段，包括收藏坐标表格
   各列宽度以及注入版悬浮窗口的位置、大小。调整 x/y/z/r 列宽后会自动保存，下次启动时恢复，
   两种模式互不覆盖，也不会生成额外的 ImGui ini 文件。DLL 在渲染期间每秒检查一次布局，内容发生
@@ -412,9 +436,11 @@ cmake --build . --config Release
 </div>
 <div class="card">
   <code>TeleportHackDesktopWinForms.exe</code> 与 <code>TeleportHackDesktopWpf.exe</code>
-  通过 <code>TeleportHackCApi.dll</code> 调用同一套 C++ 业务服务。两者当前支持进程 Attach、版本选择、
-  分类/搜索、收藏点插前/插后/编辑/删除/追加/保存/重载、导入/导出、两个 Teleport.lua 操作、
-  hotkey.txt 全局热键、双击传送、四个补丁开关、Global/Move speed、日志与 Always-on-top。
+  通过 <code>TeleportHackCApi.dll</code> 调用同一套 C++ 业务服务，并提供同样的 坐标点 / 分类导航 / 设置 / 关于 页签。
+  两者当前支持进程 Attach（单进程自动附加 + 定时检测 PID）、版本选择、当前地图显示、
+  分类/搜索、收藏点插前/插后/编辑/删除/追加/保存/重载（含朝向与地图 ID）、最近使用的坐标、跨地图传送拦截、
+  导入/导出、两个 Teleport.lua 操作、hotkey.txt 全局热键、双击传送、四个补丁开关、Global/Move speed、
+  日志与 Always-on-top（暂不支持分步传送）。
   两者读取共享 settings.json，但分别保存自己的窗口位置/大小；运行前需安装
   <strong>.NET 8 x86 Desktop Runtime</strong>。
 </div>
@@ -426,7 +452,8 @@ cmake --build . --config Release
     会弹出一个独立窗口，标题是 "TeleportHack Desktop (Attach mode)"，界面顶部比注入版多了一块
     <strong>"WoW 进程"</strong> 区域。</li>
   <li><span class="step-num">3</span>在 "WoW 进程" 列表里应该能看到正在运行的 <code>WoW.exe</code>
-    （按 PID 显示）；点一下选中，再点 <strong>Attach</strong> 按钮（或者直接双击那一行）完成附加。
+    （按 PID 显示）。<strong>只有一个 WoW 进程时会自动附加</strong>（启动时、点 Refresh 时，以及每隔
+    「设置」页的 WoW PID 查询间隔检查一次）；有多个时点一下选中，再点 <strong>Attach</strong> 按钮（或者直接双击那一行）完成附加。
     附加成功后旁边状态会显示"attached (PID xxxx)"。顶部的 <strong>Always on top: ON/OFF</strong>
     按钮可切换桌面窗口是否始终置顶；该状态会保存到 settings.json，下次启动自动恢复。</li>
   <li><span class="step-num">4</span>选好客户端版本（client 下拉框），之后的操作和注入版完全一样：
@@ -436,7 +463,8 @@ cmake --build . --config Release
   桌面版这个窗口本身不会跑在 WoW 进程里面，只是"隔着"读写它的内存，所以：
   <ul style="margin-top:8px;">
     <li>不需要任何注入器；</li>
-    <li>如果 WoW 客户端崩溃/重启，需要重新点一次 Attach（PID 变了）；</li>
+    <li>如果 WoW 客户端崩溃/重启（PID 变了），只有一个 WoW 进程时会在下一次 PID 检测时自动重新附加，
+      多开时需要手动重新选择并点 Attach；</li>
     <li>它更适合<strong>开发调试、验证收藏点/热键/UI 逻辑</strong>，正式"上分"建议还是用注入版
       <code>TeleportHackDX.dll</code>，体验和原版 AutoIt 工具的使用方式最接近。</li>
   </ul>

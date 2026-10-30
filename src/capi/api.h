@@ -128,17 +128,19 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_get_version(th_session* session,
 // Position / teleport
 // -------------------------------------------------------------------------
 
-// Fills `x`, `y`, `z` with the current player position. On 3.3.5 also
-// fills `r` (orientation in radians) and sets `has_r` to 1; on 1.12.x
-// `has_r` is set to 0 and `r` is left unchanged. Any out-pointer may be
-// NULL to skip. Returns 0 on success, -1 on failure.
+// Fills `x`, `y`, `z` with the current player position. Also fills `r`
+// (orientation in radians) and sets `has_r` to 1 when the client reports a
+// facing (3.3.5 always; 1.12.x once the movement struct is loaded);
+// otherwise `has_r` is set to 0 and `r` is left unchanged. Any out-pointer
+// may be NULL to skip. Returns 0 on success, -1 on failure.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_read_position(th_session* session,
                                                                double* x, double* y,
                                                                double* z, double* r,
                                                                int32_t* has_r);
 
 // Writes the target position. Set `has_r` to non-zero to also write
-// orientation on clients that support it (silently ignored on 1.12.x).
+// orientation. No map check and no recent-list entry; prefer
+// th_session_teleport_ex for user-initiated teleports.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_teleport(th_session* session,
                                                           double x, double y, double z,
                                                           int32_t has_r, double r);
@@ -248,9 +250,10 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_delete_in_category(th_session*
                                                                        const char* category,
                                                                        int32_t local_index);
 
-// Writes the current in-memory favourites list to `path` (5-field canonical
-// format matching FavlistRepository::save). Returns the count of records
-// written on success, or -1 on failure.
+// Writes the current in-memory favourites list to `path` (canonical format
+// matching FavlistRepository::save: 5 fields, plus a 6th map field for rows
+// that carry a map ID). Returns the count of records written on success, or
+// -1 on failure.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_save(th_session* session, const char* path);
 
 // Exports the current list to a separate favlist file. Returns the number
@@ -287,6 +290,87 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_update_current(
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_teleport_lua_insert_current_after(
     th_session* session, const char* lua_path, const char* category,
     int32_t local_index, const char* new_description);
+
+// -------------------------------------------------------------------------
+// Map IDs + facing (TeleportHackOnVanilla d462c4c/309516d sync). favlist
+// rows may carry an optional map ID ("描述#x#y#z#r#map"); missing is distinct
+// from map 0. `has_map` follows the same convention as `has_r`.
+// -------------------------------------------------------------------------
+
+// th_session_read_position plus the current map ID (`has_map` = 0 when the
+// client's map can't be read). Out-pointers may be NULL.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_read_position_ex(
+    th_session* session, double* x, double* y, double* z, double* r, int32_t* has_r,
+    uint32_t* map_id, int32_t* has_map);
+
+// Current map ID. Returns 0 on success, -1 when the client has no MapID
+// address or the read fails.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_read_map_id(th_session* session,
+                                                             uint32_t* map_id);
+
+// User-level teleport: with `has_map` non-zero the player must currently be
+// on `map_id`, otherwise nothing is written and -1 is returned ("cross-map
+// teleport is not supported" / "cannot verify destination map" in
+// last_error). On success the destination is recorded at the top of the
+// session's recent-teleport list under `label` (NULL/"" -> "坐标点").
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_session_teleport_ex(
+    th_session* session, const char* label, double x, double y, double z, int32_t has_r,
+    double r, int32_t has_map, uint32_t map_id);
+
+// Map ID of the loaded favourite at `index`. Returns 0 on success (with
+// `has_map` = 0 and `map_id` untouched when the row has no map), -1 on an
+// invalid index.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_get_map_id(th_session* session,
+                                                               int32_t index,
+                                                               uint32_t* map_id,
+                                                               int32_t* has_map);
+
+// Map-aware variants of the CRUD helpers above (same index semantics).
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_insert_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_append_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_favourites_replace_in_category_ex(
+    th_session* session, const char* category, int32_t local_index, const char* description,
+    double x, double y, double z, int32_t has_r, double r, int32_t has_map, uint32_t map_id);
+
+// -------------------------------------------------------------------------
+// Recent teleports ("最近使用的坐标"): the last 20 successful
+// th_session_teleport_ex / th_recent_teleport destinations, newest first,
+// deduplicated by x/y/z + map. Kept in memory per session only.
+// -------------------------------------------------------------------------
+
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_count(th_session* session);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_get_label(th_session* session, int32_t index,
+                                                          char* out, int32_t out_size);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_get_position(
+    th_session* session, int32_t index, double* x, double* y, double* z, double* r,
+    int32_t* has_r, uint32_t* map_id, int32_t* has_map);
+// Teleports to recent entry `index` again (same map guard as
+// th_session_teleport_ex) and moves it to the top on success.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_recent_teleport(th_session* session, int32_t index);
+
+// -------------------------------------------------------------------------
+// "分类导航" groups (no session): 0 杂项 (unknown categories, plus the
+// synthetic "所有"), 1 东部王国, 2 卡利姆多, 3 燃烧的远征, 4 巫妖王之怒.
+// -------------------------------------------------------------------------
+
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_count(void);
+// Group display name; th_version_name buffer semantics, -1 for a bad index.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_name(int32_t group, char* out,
+                                                             int32_t out_size);
+// Group index for a UTF-8 category name; -1 for NULL.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_of(const char* category);
+
+// -------------------------------------------------------------------------
+// "关于" tab (no session). th_version_name buffer semantics.
+// -------------------------------------------------------------------------
+
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_build_version(char* out, int32_t out_size);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_app_author(char* out, int32_t out_size);
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_release_notes(char* out, int32_t out_size);
 
 #ifdef __cplusplus
 } // extern "C"

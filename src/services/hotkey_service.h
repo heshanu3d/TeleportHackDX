@@ -37,8 +37,10 @@ public:
     void clear();
 
     // Called from the hooked WndProc on WM_HOTKEY. Returns true and fills
-    // `out` if `id` is one of ours.
-    bool resolve(int id, Position& out) const;
+    // `out` (and the bound point's description into `label`, if given) when
+    // `id` is one of ours. The position carries the favourite's facing and
+    // map ID, so hotkey teleports get the same map check as list teleports.
+    bool resolve(int id, Position& out, std::string* label = nullptr) const;
 
 private:
     struct Entry {

@@ -102,6 +102,10 @@ std::unordered_map<std::string, std::string> parse_flat_object(const std::string
 
 } // namespace
 
+int sanitize_pid_poll_seconds(int seconds, int fallback) {
+    return (seconds >= kMinPidPollSeconds && seconds <= kMaxPidPollSeconds) ? seconds : fallback;
+}
+
 Settings SettingsRepository::load() const {
     Settings s;
     if (!std::filesystem::exists(path_)) return s;
@@ -150,6 +154,8 @@ Settings SettingsRepository::load() const {
     get_double("movement_speed_value", s.movement_speed_value);
     get_bool("fast_step", s.fast_step);
     get_bool("desktop_always_on_top", s.desktop_always_on_top);
+    get_int("pid_poll_seconds", s.pid_poll_seconds);
+    s.pid_poll_seconds = sanitize_pid_poll_seconds(s.pid_poll_seconds);
     get_str("dll_imgui_layout", s.dll_imgui_layout);
     get_str("desktop_imgui_layout", s.desktop_imgui_layout);
     get_int("window_x", s.window_x);
@@ -195,6 +201,8 @@ bool SettingsRepository::save(const Settings& settings, std::string& error) cons
     fh << "  \"fast_step\": " << (settings.fast_step ? "true" : "false") << ",\n";
     fh << "  \"desktop_always_on_top\": "
        << (settings.desktop_always_on_top ? "true" : "false") << ",\n";
+    fh << "  \"pid_poll_seconds\": " << sanitize_pid_poll_seconds(settings.pid_poll_seconds)
+       << ",\n";
     fh << "  \"dll_imgui_layout\": \"" << json_escape(settings.dll_imgui_layout) << "\",\n";
     fh << "  \"desktop_imgui_layout\": \"" << json_escape(settings.desktop_imgui_layout)
        << "\",\n";
