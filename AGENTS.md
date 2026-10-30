@@ -383,6 +383,11 @@ gossip 菜单），它的坐标存放在一张
   `curr_pos_swap_xy` 变异测试（改错即失败）、ImGui 无头冒烟（四个页签 + do_teleport）、
   C# 三个工程 Linux 真编译 0 警告、TeleportHackCore 运行时 P/Invoke 冒烟。
 
+**已确认为绿**：commit `c253a40`，CI run #34（`41095546507`，1m59s）—— Configure（带
+`-DTH_BUILD_VERSION=0.1.3rc`）、Build、Test（含新 `vanilla_sync`）、WinForms/WPF publish 全部成功，
+产物 `TeleportHackDX-v0.1.3rc-win32`（sha256 `592f4a82be66dda73ea08c44e76e023bd94c2c2c77bd5e22eb06712e3ae2be48`）。
+未登录无法查看 MSVC 日志，是否零警告未核实（警告不会导致失败）。
+
 ## 用户提出但尚未处理的请求
 
 - 同步改动需要用户在真实客户端上实测：1.12.1/1.12.3 的朝向读写与地图 ID（地址来自 AutoIt，DX 未实机验证）、
@@ -399,4 +404,4 @@ gossip 菜单），它的坐标存放在一张
   C ABI + WinForms/WPF（013d2c4，CI #33 绿）。
 - 验证新手段：本机可装 .NET 8 SDK 到 /tmp/opencode/dotnet，用 EnableWindowsTargeting 真编译 C#；
   `ask_user` 在本会话不可用，用 `question` 工具代替。
-- 待办：推送后确认 Windows CI；请用户实机验证 1.12.x 地图/朝向与自动附加。
+- 待办：请用户实机验证 1.12.x 地图/朝向、1.12.3 读坐标顺序与桌面版自动附加（c253a40 已 CI 绿，#34）。
