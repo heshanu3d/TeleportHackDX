@@ -332,12 +332,22 @@ cmake --build . --config Release
   <tr><td><strong>client 下拉框</strong></td><td>选择当前客户端版本：1.12.1 / 1.12.3 / 3.3.5，默认 3.3.5，务必先选对再传送。
     能读到当前地图时右侧会显示 <code>map:xxx</code></td></tr>
   <tr><th colspan="2">坐标点 页</th></tr>
-  <tr><td><strong>分类 / 搜索</strong></td><td>按描述前缀（<code>-</code>之前的部分）分类筛选，搜索框按描述模糊匹配</td></tr>
+  <tr><td><strong>搜索历史 / 搜索</strong></td><td>搜索框按描述模糊匹配；按 Enter 或离开搜索框后保存输入，从下拉框选择历史可重新载入。分类通过「分类导航」选择，搜索仍作用于当前分类。</td></tr>
+  <tr><td><strong>独立搜索</strong></td><td>勾选后各分类分别记住搜索词，切换分类时自动恢复；未勾选时各分类共用一份搜索词。两种模式的搜索词及开关状态会保存，搜索历史列表仍共用。</td></tr>
+  <tr><td><strong>右键传送</strong></td><td>默认关闭，开关状态会保存。勾选后右键收藏坐标会选中并传送，与双击使用相同的传送和地图检查逻辑。</td></tr>
+  <tr><td><strong>传送api</strong></td><td>仅注入版、指定的 1.12.3 build 6141 客户端可用，默认关闭；勾选状态会保存。
+    勾选后，双击收藏表中的坐标点时，同地图仍按原方式传送，跨地图才请求服务端传送；
+    目标和当前地图 ID 都必须能确认，否则取消传送。
+    传送大按钮、最近记录和热键仍使用原来的内存传送。需要服务端加载发布包 <code>server/TeleportManager.lua</code>；
+    所有玩家都可使用此接口，不要求炉石，战斗中不可传送。游戏聊天框显示服务端结果，ok 代表请求被接受，
+    不代表客户端已完成加载。其他客户端版本和桌面版不支持。</td></tr>
   <tr><td><strong>传送点表格</strong></td><td>显示 描述/x/y/z/r/map（r=朝向，map=地图 ID，缺省时显示"-"）；单击选中一行，双击直接传送</td></tr>
-  <tr><td><strong>最近使用的坐标</strong></td><td>最近 20 次成功传送的目的地（最新的在最上面，同一地图的同一坐标不会重复出现）；
+  <tr><td><strong>及时保存</strong></td><td>默认关闭；开启后，AddPos、EditPost、DelPos、InsertPos 和 AppendPos 成功时立即保存收藏。保存失败会记录错误，当前修改仍保留在内存中。</td></tr>
+  <tr><td><strong>最近使用的坐标</strong></td><td>位于第三排操作按钮下方；最近 20 次成功传送的目的地（最新的在最上面，同一地图的同一坐标不会重复出现）；
     双击某一行再次传送。只保存在内存里，重启后清空</td></tr>
   <tr><td><strong>描述输入框</strong></td><td>新增/编辑传送点时填写描述文本；注入版支持中文输入法，输入焦点离开后会把 IME 控制权还给 WoW 聊天框</td></tr>
-  <tr><td><strong>插前 / 插后 / 编辑 / 删除</strong></td><td>基于当前选中行 + 描述输入框 + 当前读取到的角色坐标（含朝向和地图 ID），插入/编辑/删除该分类下的传送点</td></tr>
+  <tr><td><strong>AddPos / EditPost / DelPos</strong></td><td>分别追加当前坐标、编辑所选行和删除所选行。</td></tr>
+  <tr><td><strong>InsertPos / AppendPos / Save / Reload</strong></td><td>分别在所选行前插入、后插入、保存收藏、重新加载收藏和热键。</td></tr>
   <tr><td><strong>读取到炉石</strong></td><td>和"编辑"一样读取当前角色的 x/y/z/朝向，但写入的不是 favlist.fav，
     而是服务端 <code>Teleport.lua</code> 里 <code>local FAV</code> 表中<strong>当前选中行同名</strong>的那一条坐标数据
     （按描述文本精确匹配）。用于快速同步"超级炉石"NPC/道具菜单里的坐标，不需要重跑 <code>gen_fav.py</code> 整表重新生成。
@@ -345,14 +355,20 @@ cmake --build . --config Release
   <tr><td><strong>插后 表&amp;炉石</strong></td><td>执行一次普通"插后"，同时在 <code>Teleport.lua</code>
     的选中同名条目之后插入相同的新条目。新名称取描述输入框，mapId/x/y/z/朝向取当前 3.3.5 角色；
     仅 3.3.5 支持。和普通"插后"一样，列表改动仍需点击"保存"才会写入 favlist.fav。</td></tr>
-  <tr><td><strong>追加 / 保存 / 重载</strong></td><td>追加=在列表末尾新增一条；保存=写回 favlist.fav；重载=从磁盘重新读取 favlist.fav + hotkey.txt（保持列表滚动位置）</td></tr>
   <tr><td><strong>Teleport 大按钮</strong></td><td>传送到当前选中的传送点；开启分步传送时按钮显示为 "Teleport (step)"。
     <strong>传送点带有地图 ID 且与当前地图不同（或当前地图读不到）时会取消传送</strong>并在日志提示
     "cross-map teleport is not supported"——写坐标无法跨地图，强行写入只会把角色传进虚空。没有地图 ID 的传送点不做检查</td></tr>
   <tr><th colspan="2">分类导航 页</th></tr>
+  <tr><td><strong>分类设置</strong></td><td>在「分类设置」页新增、重命名、删除及调整大类顺序。小类可普通点击单选、按住 Ctrl 逐项多选或按住 Shift 连续多选，选中后批量移动到其他大类或调整顺序。小类来自当前收藏文件；删除大类会将其小类移到首个大类。分组保存在 settings.json，不修改收藏文件。</td></tr>
   <tr><td><strong>分组分类网格</strong></td><td>把所有分类按 【杂项】（含"所有"）【东部王国】【卡利姆多】【燃烧的远征】【巫妖王之怒】分组，每行 3 个；
     点击某个分类会切换到该分类并自动回到「坐标点」页</td></tr>
   <tr><th colspan="2">设置 页</th></tr>
+  <tr><td><strong>搜索历史管理</strong></td><td>可新增、选中后编辑或删除搜索历史；数据保存在 settings.json 中。</td></tr>
+  <tr><td><strong>界面风格</strong></td><td>注入版和 ImGui 桌面版可选亮色主题或暗黑主题，切换立即生效并保存到 settings.json；默认暗黑主题。</td></tr>
+  <tr><td><strong>折叠快捷键</strong></td><td>注入版可设置字母、数字、F1-F12 或常用导航键，并可组合 Ctrl、Shift、Alt；默认未设置。游戏窗口在前台且界面可见时切换标题栏折叠状态，在工具文本框中输入时不触发。选择的组合会被界面拦截，请避免与游戏快捷键或聊天输入冲突。Win+Insert 仍控制整个界面的显示与隐藏。</td></tr>
+  <tr><td><strong>界面不透明度 / 主窗口高度</strong></td><td>可调整整个界面的不透明度和主窗口高度。注入版窗口布局与桌面版窗口尺寸分别保存。</td></tr>
+  <tr><td><strong>坐标列表高度 / 显示坐标列</strong></td><td>按行数调整收藏列表高度，并可分别显示或隐藏 x、y、z、r、map 列；不影响收藏数据和传送。</td></tr>
+  <tr><td><strong>坐标按钮</strong></td><td>调节三排坐标按钮的宽度、高度及间隔，并保存到 settings.json。较长的按钮文字会自动获得足够宽度；窗口较窄时可横向滚动。</td></tr>
   <tr><td><strong>传送设置</strong></td><td>step（分步传送）开关：勾选后传送变为"分步平滑移动"，不勾选则瞬间传送；以及步长/间隔参数（仅 ImGui 版）</td></tr>
   <tr><td><strong>AntiJump / AutoLoot / LuaUnlock / PatchLoot</strong></td><td>四个内存补丁开关按钮，点一次切换一次状态，结果显示在下方日志里</td></tr>
   <tr><td><strong>Global speed</strong></td><td>写入 3.3.5 玩家对象的全局速度字段 <code>0x814</code>；输入数值后点 Apply。1.12.x 不支持。</td></tr>

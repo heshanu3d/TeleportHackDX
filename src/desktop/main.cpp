@@ -126,7 +126,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     int start_w = initial.window_width > 0 ? initial.window_width : 500;
     int start_h = initial.window_height > 0 ? initial.window_height : 900;
 
-    WNDCLASSEXA wc = {sizeof(wc),  CS_CLASSDC, WndProc, 0L,      0L,
+    // Layered window opacity is incompatible with CS_CLASSDC.
+    WNDCLASSEXA wc = {sizeof(wc),  0, WndProc, 0L,      0L,
                        hInstance,  nullptr,    nullptr, nullptr, nullptr,
                        "TeleportHackDesktopWndClass", nullptr};
     RegisterClassExA(&wc);

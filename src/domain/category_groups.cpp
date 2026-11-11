@@ -1,6 +1,8 @@
 #include "domain/category_groups.h"
 
+#include <algorithm>
 #include <array>
+#include <unordered_set>
 
 #include "domain/models.h"
 
@@ -22,7 +24,7 @@ struct ZoneGroup {
     int group;
 };
 
-// Exactly the Switch/Case lists of CategoryGridGroup() in ui.au3.
+// Ordered lists from CategoryGridOrder() in ui.au3.
 const ZoneGroup kZoneGroups[] = {
     // 东部王国
     {"\xe8\x89\xbe\xe5\xb0\x94\xe6\x96\x87\xe6\xa3\xae\xe6\x9e\x97", 1},             // 艾尔文森林
@@ -46,6 +48,7 @@ const ZoneGroup kZoneGroups[] = {
     {"\xe4\xb8\x9c\xe7\x98\x9f\xe7\x96\xab", 1},                                     // 东瘟疫
     // 卡利姆多
     {"\xe6\xb3\xb0\xe8\xbe\xbe\xe5\xb8\x8c\xe5\xb0\x94", 2},                         // 泰达希尔
+    {"\xe9\xbb\x91\xe6\xb5\xb7\xe5\xb2\xb8", 2},                                     // 黑海岸
     {"\xe7\x81\xb0\xe8\xb0\xb7", 2},                                                 // 灰谷
     {"\xe9\x97\xaa\xe5\x85\x89\xe5\xb9\xb3\xe5\x8e\x9f", 2},                         // 闪光平原
     {"\xe6\x9d\x9c\xe9\x9a\x86\xe5\xa1\x94\xe5\xb0\x94", 2},                         // 杜隆塔尔
@@ -57,7 +60,6 @@ const ZoneGroup kZoneGroups[] = {
     {"\xe6\x9c\x88\xe5\x85\x89\xe6\x9e\x97\xe5\x9c\xb0", 2},                         // 月光林地
     {"\xe6\xa3\x98\xe9\xbd\xbf\xe5\x9f\x8e", 2},                                     // 棘齿城
     {"\xe5\xae\x89\xe6\x88\x88\xe6\xb4\x9b", 2},                                     // 安戈洛
-    {"\xe8\xbe\xbe\xe7\xba\xb3\xe8\x8b\x8f\xe6\x96\xaf", 2},                         // 达纳苏斯
     {"\xe5\x86\xac\xe6\xb3\x89\xe8\xb0\xb7", 2},                                     // 冬泉谷
     {"\xe5\xb8\x8c\xe5\x88\xa9\xe8\x8b\x8f\xe6\x96\xaf", 2},                         // 希利苏斯
     // 燃烧的远征
@@ -98,6 +100,13 @@ int category_group_of(const std::string& category) {
     return 0;
 }
 
+int category_order(const std::string& category) {
+    for (size_t i = 0; i < std::size(kZoneGroups); ++i) {
+        if (category == kZoneGroups[i].name) return static_cast<int>(i);
+    }
+    return -1;
+}
+
 std::vector<CategoryGroup> group_categories(const std::vector<std::string>& categories) {
     std::vector<CategoryGroup> groups;
     groups.reserve(kCategoryGroupCount);
@@ -107,9 +116,179 @@ std::vector<CategoryGroup> group_categories(const std::vector<std::string>& cate
     groups[0].categories.push_back(ALL_CATEGORY);
     for (const auto& category : categories) {
         if (category == ALL_CATEGORY) continue;
-        groups[static_cast<size_t>(category_group_of(category))].categories.push_back(category);
+        if (category_group_of(category) == 0) groups[0].categories.push_back(category);
+    }
+    for (const auto& zone : kZoneGroups) {
+        if (std::find(categories.begin(), categories.end(), zone.name) != categories.end()) {
+            groups[static_cast<size_t>(zone.group)].categories.emplace_back(zone.name);
+        }
     }
     return groups;
+}
+
+bool valid_category_group_name(const std::string& name) {
+    if (name.empty() || name.size() > 127) return false;
+    bool non_space = false;
+    for (unsigned char c : name) {
+        if (c < 0x20 || c == 0x7f) return false;
+        if (c != ' ') non_space = true;
+    }
+    return non_space;
+}
+
+bool valid_category_group_config(const std::vector<CategoryGroup>& groups) {
+    if (groups.empty()) return false;
+    std::unordered_set<std::string> names, categories;
+    for (const auto& group : groups) {
+        if (!valid_category_group_name(group.name) || !names.insert(group.name).second) return false;
+        for (const auto& category : group.categories)
+            if (category == ALL_CATEGORY || !categories.insert(category).second) return false;
+    }
+    return true;
+}
+
+std::vector<CategoryGroup> editable_category_groups(const std::vector<std::string>& categories,
+                                                     const std::vector<CategoryGroup>& saved,
+                                                     bool customized) {
+    if (!customized || !valid_category_group_config(saved)) {
+        std::vector<std::string> all;
+        std::unordered_set<std::string> seen;
+        for (const auto& category : categories)
+            if (category != ALL_CATEGORY && seen.insert(category).second) all.push_back(category);
+        for (const auto& zone : kZoneGroups)
+            if (seen.insert(zone.name).second) all.emplace_back(zone.name);
+        auto result = group_categories(all);
+        for (auto& group : result)
+            group.categories.erase(std::remove(group.categories.begin(), group.categories.end(), ALL_CATEGORY),
+                                   group.categories.end());
+        return result;
+    }
+    auto result = saved;
+    std::unordered_set<std::string> assigned;
+    for (const auto& group : result)
+        assigned.insert(group.categories.begin(), group.categories.end());
+    for (const auto& category : categories) {
+        if (category == ALL_CATEGORY || !assigned.insert(category).second) continue;
+        const std::string& preferred = category_group_name(category_group_of(category));
+        const auto group = std::find_if(result.begin(), result.end(), [&](const CategoryGroup& g) {
+            return g.name == preferred;
+        });
+        (group == result.end() ? result.front() : *group).categories.push_back(category);
+    }
+    return result;
+}
+
+std::vector<CategoryGroup> navigation_category_groups(const std::vector<std::string>& categories,
+                                                       const std::vector<CategoryGroup>& saved,
+                                                       bool customized) {
+    if (!customized || !valid_category_group_config(saved)) return group_categories(categories);
+    auto result = editable_category_groups(categories, saved, true);
+    const std::unordered_set<std::string> available(categories.begin(), categories.end());
+    for (auto& group : result) {
+        group.categories.erase(std::remove_if(group.categories.begin(), group.categories.end(),
+            [&](const std::string& name) { return available.find(name) == available.end(); }), group.categories.end());
+    }
+    result.front().categories.insert(result.front().categories.begin(), ALL_CATEGORY);
+    return result;
+}
+
+bool add_category_group(std::vector<CategoryGroup>& groups, const std::string& name) {
+    if (!valid_category_group_name(name) || std::any_of(groups.begin(), groups.end(),
+        [&](const CategoryGroup& group) { return group.name == name; })) return false;
+    groups.push_back({name, {}});
+    return true;
+}
+
+bool rename_category_group(std::vector<CategoryGroup>& groups, size_t index, const std::string& name) {
+    if (index >= groups.size() || !valid_category_group_name(name)) return false;
+    for (size_t i = 0; i < groups.size(); ++i)
+        if (i != index && groups[i].name == name) return false;
+    groups[index].name = name;
+    return true;
+}
+
+bool delete_category_group(std::vector<CategoryGroup>& groups, size_t index) {
+    if (groups.size() <= 1 || index >= groups.size()) return false;
+    auto categories = std::move(groups[index].categories);
+    groups.erase(groups.begin() + index);
+    groups.front().categories.insert(groups.front().categories.end(), categories.begin(), categories.end());
+    return true;
+}
+
+bool move_category_group(std::vector<CategoryGroup>& groups, size_t from, size_t to) {
+    if (from >= groups.size() || to >= groups.size() || from == to) return false;
+    auto group = std::move(groups[from]);
+    groups.erase(groups.begin() + from);
+    groups.insert(groups.begin() + to, std::move(group));
+    return true;
+}
+
+bool move_category_between_groups(std::vector<CategoryGroup>& groups, const std::string& category, size_t target) {
+    if (target >= groups.size() || category == ALL_CATEGORY) return false;
+    for (size_t i = 0; i < groups.size(); ++i) {
+        auto it = std::find(groups[i].categories.begin(), groups[i].categories.end(), category);
+        if (it == groups[i].categories.end()) continue;
+        return move_categories_between_groups(groups, i, target, {category});
+    }
+    return false;
+}
+
+bool move_categories_between_groups(std::vector<CategoryGroup>& groups, size_t source, size_t target,
+                                    const std::vector<std::string>& categories) {
+    if (source >= groups.size() || target >= groups.size() || source == target || categories.empty()) return false;
+    const std::unordered_set<std::string> wanted(categories.begin(), categories.end());
+    if (wanted.count(ALL_CATEGORY) || wanted.size() != categories.size()) return false;
+    auto& from = groups[source].categories;
+    std::vector<std::string> moving;
+    for (const auto& category : from) if (wanted.count(category)) moving.push_back(category);
+    if (moving.size() != wanted.size()) return false;
+    from.erase(std::remove_if(from.begin(), from.end(), [&](const std::string& value) {
+        return wanted.count(value) != 0;
+    }), from.end());
+    auto& to = groups[target].categories;
+    to.insert(to.end(), moving.begin(), moving.end());
+    return true;
+}
+
+bool reorder_category(std::vector<CategoryGroup>& groups, size_t group, const std::string& category,
+                      int direction, const std::vector<std::string>& available) {
+    return reorder_categories(groups, group, {category}, direction, available);
+}
+
+bool reorder_categories(std::vector<CategoryGroup>& groups, size_t group,
+                        const std::vector<std::string>& categories, int direction,
+                        const std::vector<std::string>& available) {
+    if (group >= groups.size() || (direction != -1 && direction != 1) || categories.empty()) return false;
+    const std::unordered_set<std::string> wanted(categories.begin(), categories.end());
+    if (wanted.size() != categories.size() || wanted.count(ALL_CATEGORY)) return false;
+    const std::unordered_set<std::string> visible(available.begin(), available.end());
+    auto& list = groups[group].categories;
+    std::vector<size_t> positions;
+    size_t matched = 0;
+    for (size_t i = 0; i < list.size(); ++i) {
+        if (visible.count(list[i])) {
+            positions.push_back(i);
+            if (wanted.count(list[i])) ++matched;
+        }
+    }
+    if (matched != wanted.size()) return false;
+    bool changed = false;
+    if (direction == -1) {
+        for (size_t i = 1; i < positions.size(); ++i) {
+            if (wanted.count(list[positions[i]]) && !wanted.count(list[positions[i - 1]])) {
+                std::swap(list[positions[i]], list[positions[i - 1]]);
+                changed = true;
+            }
+        }
+    } else {
+        for (size_t i = positions.size(); i > 1; --i) {
+            if (wanted.count(list[positions[i - 2]]) && !wanted.count(list[positions[i - 1]])) {
+                std::swap(list[positions[i - 2]], list[positions[i - 1]]);
+                changed = true;
+            }
+        }
+    }
+    return changed;
 }
 
 } // namespace th

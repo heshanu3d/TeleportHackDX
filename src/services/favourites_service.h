@@ -19,6 +19,8 @@ public:
 
     bool reload(std::string& error);
     int save(std::string& error); // returns count written, -1 on failure
+    // No value means skipped; otherwise uses the same result as save().
+    std::optional<int> save_after_change(bool enabled, bool changed, std::string& error);
 
     const std::vector<TeleportPoint>& all_points() const { return points_; }
 

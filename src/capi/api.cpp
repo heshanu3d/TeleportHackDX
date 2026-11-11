@@ -1,7 +1,9 @@
 // TeleportHackDX C ABI implementation. See src/capi/api.h for the
 // contract; this translation unit is the only place that mixes C-linkage
 // exports with th_core internals.
+#ifndef TH_CAPI_BUILDING
 #define TH_CAPI_BUILDING
+#endif
 #include "capi/api.h"
 
 #include <cstring>
@@ -788,6 +790,11 @@ extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_name(int32_t gr
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_of(const char* category) {
     if (!category) return -1;
     return th::category_group_of(category);
+}
+
+extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_order(const char* category) {
+    if (!category) return -1;
+    return th::category_order(category);
 }
 
 extern "C" TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_build_version(char* out, int32_t out_size) {

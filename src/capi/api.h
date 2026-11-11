@@ -363,6 +363,8 @@ TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_name(int32_t group, char* 
                                                              int32_t out_size);
 // Group index for a UTF-8 category name; -1 for NULL.
 TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_group_of(const char* category);
+// Preset ordering key; -1 for NULL or an unlisted category.
+TH_CAPI_EXPORT int32_t TH_CAPI_CALL th_category_order(const char* category);
 
 // -------------------------------------------------------------------------
 // "关于" tab (no session). th_version_name buffer semantics.

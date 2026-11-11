@@ -256,7 +256,8 @@ public sealed class TeleportSession : IDisposable
     /// <summary>
     /// Buckets <paramref name="categories"/> into the five "分类导航" groups
     /// (杂项, 东部王国, 卡利姆多, 燃烧的远征, 巫妖王之怒). The first group
-    /// starts with <see cref="AllCategory"/>; empty groups are kept.
+    /// starts with <see cref="AllCategory"/> and keeps input order; known
+    /// groups use the native preset order. Empty groups are kept.
     /// </summary>
     public static IReadOnlyList<CategoryGroup> GroupCategories(IEnumerable<string> categories)
     {
@@ -269,8 +270,11 @@ public sealed class TeleportSession : IDisposable
             if (category == AllCategory) continue;
             int group = th_category_group_of(ToUtf8(category));
             if (group < 0 || group >= count) group = 0;
-            buckets[group].Add(category);
+            if (group == 0 || !buckets[group].Contains(category)) buckets[group].Add(category);
         }
+        for (int i = 1; i < count; ++i)
+            buckets[i].Sort((a, b) => th_category_order(ToUtf8(a)).CompareTo(
+                                       th_category_order(ToUtf8(b))));
         var groups = new List<CategoryGroup>(count);
         for (int i = 0; i < count; ++i)
             groups.Add(new CategoryGroup(ReadIndexedStaticUtf8String(i, th_category_group_name),

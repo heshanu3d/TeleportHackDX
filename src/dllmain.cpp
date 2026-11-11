@@ -2,13 +2,19 @@
 
 #include "core/hook.h"
 
+namespace {
+DWORD WINAPI InitializeHookThread(LPVOID) {
+    InitializeHook();
+    return 0;
+}
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID /*reserved*/) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
-            CreateThread(nullptr, 0,
-                         reinterpret_cast<LPTHREAD_START_ROUTINE>(InitializeHook), nullptr, 0,
-                         nullptr);
+            if (HANDLE thread = CreateThread(nullptr, 0, InitializeHookThread, nullptr, 0, nullptr))
+                CloseHandle(thread);
             break;
         case DLL_PROCESS_DETACH:
             CleanupHook();

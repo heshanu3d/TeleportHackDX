@@ -3,8 +3,8 @@
 //
 // Layout mirrors TeleportHackOnVanilla's tabbed AutoIt window (d25a20f):
 // [process list, Attach mode only] -> client row -> tabs
-//   坐标点   category/search, favourites table, 最近使用的坐标, description,
-//            CRUD rows, Teleport button
+//   坐标点   category/search, favourites table, description, CRUD rows,
+//            最近使用的坐标, Teleport button
 //   分类导航 grouped 3-column category grid (click -> back to 坐标点)
 //   设置     step/patch toggles, speeds, PID polling, paths, import/export
 //   关于     version, author, release notes
@@ -27,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "domain/versions.h"
@@ -39,6 +40,8 @@
 #include "services/recent_teleports.h"
 #include "services/teleport_service.h"
 #include "ui/log_view.h"
+#include "ui/collapse_shortcut.h"
+#include "ui/category_selection.h"
 #include "util/process_list.h"
 
 namespace th {
@@ -52,11 +55,16 @@ class App {
 public:
     App();
 
+    using ApiSender = std::function<bool(const std::string&, std::string&)>;
+    void set_api_sender(ApiSender sender) { api_sender_ = std::move(sender); }
+
     // Called once the overlay's window handle is known (from the D3D9
     // device's creation parameters in the DLL, or our own window in the
     // desktop build). Loads settings/favourites/hotkeys and switches on
     // the configured/default version.
-    void initialize(HWND owner_hwnd, BackendMode mode);
+    // The optional backend replaces only the in-process backend, for isolated tests.
+    void initialize(HWND owner_hwnd, BackendMode mode,
+                    std::unique_ptr<MemoryBackend> inprocess_backend = nullptr);
 
     // Called every frame between ImGui::NewFrame() and ImGui::Render(),
     // only while the overlay is visible.
@@ -65,9 +73,11 @@ public:
     // Called every frame regardless of overlay visibility, to advance any
     // in-flight step-teleport.
     void tick();
+    void finish_search_edit();
 
     // Forward WM_HOTKEY from the hooked/owned WndProc. Returns true if handled.
     bool on_wndproc(UINT msg, WPARAM wParam, LPARAM lParam);
+    bool on_collapse_shortcut(UINT msg, WPARAM wParam, LPARAM lParam, bool overlay_visible);
 
     // Desktop build only: called by main.cpp with the OS window's current
     // screen rect (e.g. from GetWindowRect) right before shutdown(), so
@@ -103,8 +113,21 @@ private:
 
     // ---- UI state ----
     bool step_enabled_ = false;
+    CollapseShortcut collapse_shortcut_;
+    std::atomic<bool> overlay_text_input_{false};
+    uint32_t teleport_api_token_ = 0;
+    ApiSender api_sender_;
     std::string selected_category_ = ALL_CATEGORY;
     char search_buf_[128] = {0};
+    bool search_edit_dirty_ = false;
+    int history_manager_selected_ = -1;
+    char history_manager_buf_[128] = {0};
+    int category_group_selected_ = 0;
+    int category_group_target_ = 0;
+    bool category_group_initialized_ = false;
+    char category_group_name_buf_[128] = {0};
+    CategorySelection category_group_selection_;
+    std::string category_group_message_;
     char desc_buf_[256] = {0};
     char speed_buf_[32] = "7";
     char movement_speed_buf_[32] = "7";
@@ -135,12 +158,16 @@ private:
     void auto_attach_single_process(const char* reason);
     bool set_desktop_always_on_top(bool enabled);
     void select_category(const std::string& name);
+    void restore_search_scope();
+    void configure_collapse_shortcut();
 
     std::vector<TeleportPoint> displayed_points() const;
     std::optional<TeleportPoint> current_point() const;
 
     // Map guard -> instant or step teleport -> 最近使用的坐标 entry.
     void do_teleport(const Position& pos, const std::string& label);
+    void do_api_teleport(const Position& pos, const std::string& label);
+    void do_favourite_teleport(const Position& pos, const std::string& label);
     void safe_toggle(const std::string& name,
                       const std::function<bool(bool&)>& fn);
 
@@ -149,9 +176,11 @@ private:
     void render_version_row();
     void render_points_tab();
     void render_navigation_tab();
+    void render_category_settings_tab();
     void render_settings_tab();
     void render_about_tab();
-    void render_category_and_search();
+    void render_search();
+    void render_search_history_settings();
     void render_table();
     void render_recent();
     void render_desc_input();

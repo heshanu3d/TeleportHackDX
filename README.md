@@ -164,7 +164,27 @@ not alter the injection DLL's runtime dependency graph.
 
 ## Building
 
-Requires Visual Studio 2019+ and CMake 3.15+. **Must be built 32-bit**
+For a local 32-bit LLVM-MinGW build, run **pwsh -File .\build-local.ps1**.
+The script locates the toolchain under D:\SDK\llvm-mingw, or accepts
+-ToolchainRoot / LLVM_MINGW_ROOT, builds and runs all CTest tests, then creates
+a new timestamped package under build\local-mingw. Existing data files in
+previous packages are not overwritten. The MinGW x86 build uses Windows
+process-memory APIs for fault protection; MSVC retains its SEH implementation.
+
+To install an existing local package into the ignored project-root dist folder,
+run **powershell -ExecutionPolicy Bypass -File .\install-local.ps1**. The
+installer selects the latest local release by default; pass -PackagePath to
+select a particular release. Existing favourites, hotkeys, settings and
+unrelated files are preserved. Replaced program files and server scripts are
+backed up inside dist.
+
+To build, test and install the exact newly generated package in one step, run
+**powershell -ExecutionPolicy Bypass -File .\build_and_install-local.ps1**.
+Both scripts accept -DestinationPath for a different installation directory;
+the combined script also accepts -ToolchainRoot and -Jobs.
+
+The standard MSVC build requires Visual Studio 2019+ and CMake 3.15+.
+Both build variants **must be built 32-bit**
 (`Win32`) since these WoW clients are 32-bit and every hardcoded address in
 `src/domain/versions.cpp` assumes a 32-bit pointer size.
 

@@ -9,6 +9,7 @@
 #include "imgui_impl_dx9.h"
 #include "imgui_impl_win32.h"
 #include "ui/app.h"
+#include "core/game_teleport_api.h"
 
 // imgui_impl_win32.h deliberately comments out this declaration (to avoid
 // dragging <windows.h> into that header); we already include <Windows.h>
@@ -254,6 +255,7 @@ LRESULT DefaultWindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    if (handle_game_teleport_api_message(uMsg)) return 0;
     if (g_ime_control_message && uMsg == g_ime_control_message) {
         ImeControlRequest request;
         AcquireSRWLockExclusive(&g_pending_ime_lock);
@@ -268,6 +270,8 @@ LRESULT APIENTRY WndProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
         g_app.on_wndproc(uMsg, wParam, lParam);
         return 0;
     }
+
+    if (g_initialized && g_app.on_collapse_shortcut(uMsg, wParam, lParam, g_show_gui)) return 0;
 
     if (IsImeMessage(uMsg)) {
         if (!OwnsImeMessages()) {
@@ -328,6 +332,10 @@ HRESULT APIENTRY HookedEndScene(LPDIRECT3DDEVICE9 pDevice) {
             SetWindowLongPtr(params.hFocusWindow, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(WndProc)));
 
         g_app.initialize(params.hFocusWindow, th::BackendMode::InProcess);
+        g_app.set_api_sender([hwnd = params.hFocusWindow](const std::string& command,
+                                                          std::string& error) {
+            return queue_game_teleport_api(hwnd, command, error);
+        });
 
         g_initialized = true;
     }
@@ -336,7 +344,10 @@ HRESULT APIENTRY HookedEndScene(LPDIRECT3DDEVICE9 pDevice) {
     // implemented as: Insert edge-trigger while either Windows key is down.
     bool win_down = (GetAsyncKeyState(VK_LWIN) & 0x8000) || (GetAsyncKeyState(VK_RWIN) & 0x8000);
     if (win_down && (GetAsyncKeyState(VK_INSERT) & 1)) {
-        if (g_show_gui) DispatchImeControl(g_game_hwnd, ImeControlRequest{});
+        if (g_show_gui) {
+            g_app.finish_search_edit();
+            DispatchImeControl(g_game_hwnd, ImeControlRequest{});
+        }
         g_show_gui = !g_show_gui;
         ImGui::GetIO().MouseDrawCursor = g_show_gui;
     }
@@ -407,6 +418,7 @@ void InitializeHook() {
 }
 
 void CleanupHook() {
+    shutdown_game_teleport_api();
     // Called from DllMain under the loader lock. IMM teardown can synchronously
     // send window messages, so only normal overlay hide performs restoration;
     // process teardown lets the OS discard any remaining association.

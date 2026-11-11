@@ -8,6 +8,11 @@ bool FavouritesService::reload(std::string& error) { return repo_.load(points_, 
 
 int FavouritesService::save(std::string& error) { return repo_.save(points_, error); }
 
+std::optional<int> FavouritesService::save_after_change(bool enabled, bool changed, std::string& error) {
+    if (!enabled || !changed) return std::nullopt;
+    return save(error);
+}
+
 std::vector<Category> FavouritesService::categories() const {
     return points_to_categories(points_);
 }

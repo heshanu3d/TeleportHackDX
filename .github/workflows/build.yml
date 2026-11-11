@@ -111,6 +111,9 @@ jobs:
           Copy-Item publish/wpf/TeleportHackDesktopWpf.runtimeconfig.json dist/
           Copy-Item favlist.fav dist/
           Copy-Item hotkey.txt dist/
+          New-Item -ItemType Directory -Force -Path dist/server | Out-Null
+          Copy-Item integration/vmangos/TeleportManager.lua dist/server/
+          Copy-Item integration/vmangos/README.md dist/server/
 
       - name: Upload DLL + ImGui/WPF/WinForms EXEs + launcher + C ABI + starter data
         uses: actions/upload-artifact@v7

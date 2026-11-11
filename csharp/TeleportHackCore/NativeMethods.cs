@@ -268,6 +268,9 @@ internal static class NativeMethods
     public static extern int th_category_group_of(byte[] category);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int th_category_order(byte[] category);
+
+    [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int th_build_version(byte[]? buffer, int bufferSize);
 
     [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

@@ -3,8 +3,8 @@
 // Mirrors infrastructure/memory/backend.py's MemoryBackend protocol. Unlike
 // the Windows/pymem Python port -- which attaches to a *different* WoW.exe
 // process via ReadProcessMemory/WriteProcessMemory -- this DLL is injected
-// directly into the game process, so all addresses are dereferenced
-// in-process. Every access is guarded with SEH so a bad pointer chain
+// directly into the game process. Access uses SEH with MSVC and Windows
+// process-memory APIs with LLVM-MinGW, so a bad pointer chain
 // (e.g. player object not yet loaded) logs a soft failure instead of
 // crashing the host game.
 //
@@ -36,8 +36,7 @@ public:
     virtual bool write_byte(uintptr_t address, uint8_t value) = 0;
 };
 
-// The only backend we ship: dereferences pointers within the current
-// process, guarded by SEH.
+// Accesses the current process with a compiler-appropriate fault guard.
 class InProcessBackend final : public MemoryBackend {
 public:
     bool is_attached() const override { return true; }

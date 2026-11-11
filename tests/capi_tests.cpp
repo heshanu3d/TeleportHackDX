@@ -476,6 +476,11 @@ void test_category_groups_and_about() {
           "Nagrand belongs to The Burning Crusade");
     check(th_category_group_of("unknown") == 0, "unknown categories go to misc");
     check(th_category_group_of(nullptr) == -1, "NULL category rejected");
+    check(th_category_order("\xe9\xbb\x91\xe6\xb5\xb7\xe5\xb2\xb8") <
+              th_category_order("\xe7\x81\xb0\xe8\xb0\xb7"),
+          "Darkshore sorts before Ashenvale");
+    check(th_category_order("unknown") == -1 && th_category_order(nullptr) == -1,
+          "unknown and NULL have no preset order");
 
     check(th_build_version(nullptr, 0) > 0, "build version reported");
     char author[16] = {0};

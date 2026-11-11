@@ -54,10 +54,12 @@ set(BUSINESS_SOURCES
     src/domain/app_info.cpp
     src/memory/outofprocess_backend.cpp
     src/services/teleport_service.cpp
+    src/services/teleport_api.cpp
     src/services/feature_service.cpp
     src/services/favourites_service.cpp
     src/services/favourites_porter.cpp
     src/services/recent_teleports.cpp
+    src/services/search_history.cpp
     src/repository/favlist_repository.cpp
     src/repository/settings_repository.cpp
     src/repository/teleport_lua_repository.cpp
@@ -91,8 +93,13 @@ add_library(th_core STATIC
     src/repository/hotkey_config_repository.cpp
     src/util/paths.cpp
     src/ui/app.cpp
+    src/ui/crud_buttons.cpp
+    src/ui/category_selection.cpp
+    src/ui/collapse_shortcut.cpp
+    src/ui/favourites_table.cpp
+    src/ui/theme.cpp
 )
-target_link_libraries(th_core PUBLIC th_business imgui comdlg32)
+target_link_libraries(th_core PUBLIC th_business imgui comdlg32 dwmapi)
 
 if(MSVC)
     target_compile_options(th_core PRIVATE /W4 /permissive-)
@@ -103,8 +110,10 @@ endif()
 add_library(TeleportHackDX SHARED
     src/dllmain.cpp
     src/core/hook.cpp
+    src/core/game_teleport_api.cpp
 )
-target_link_libraries(TeleportHackDX PRIVATE th_core minhook d3d9 imm32)
+set_target_properties(TeleportHackDX PROPERTIES PREFIX "")
+target_link_libraries(TeleportHackDX PRIVATE th_core minhook d3d9 imm32 advapi32)
 if(MSVC)
     target_compile_options(TeleportHackDX PRIVATE /W4 /permissive-)
 endif()
@@ -130,6 +139,7 @@ endif()
 add_library(TeleportHackCApi SHARED
     src/capi/api.cpp
 )
+set_target_properties(TeleportHackCApi PROPERTIES PREFIX "")
 target_link_libraries(TeleportHackCApi PRIVATE th_business)
 target_compile_definitions(TeleportHackCApi PRIVATE TH_CAPI_BUILDING)
 if(MSVC)
@@ -143,7 +153,9 @@ endif()
 add_executable(TeleportHackLauncher
     src/launcher/main.cpp
     src/domain/models.cpp
+    src/domain/category_groups.cpp
     src/repository/settings_repository.cpp
+    src/services/search_history.cpp
 )
 target_include_directories(TeleportHackLauncher PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 if(MSVC)
@@ -181,6 +193,23 @@ if(MSVC)
 endif()
 add_test(NAME vanilla_sync COMMAND sync_tests)
 
+add_executable(teleport_api_tests tests/teleport_api_tests.cpp)
+target_link_libraries(teleport_api_tests PRIVATE th_business)
+if(MSVC)
+    target_compile_options(teleport_api_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME teleport_api COMMAND teleport_api_tests)
+
+add_executable(inprocess_backend_tests
+    tests/inprocess_backend_tests.cpp
+    src/memory/inprocess_backend.cpp
+)
+target_include_directories(inprocess_backend_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(inprocess_backend_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME inprocess_backend COMMAND inprocess_backend_tests)
+
 add_executable(settings_repository_tests
     tests/settings_repository_tests.cpp
 )
@@ -189,6 +218,34 @@ if(MSVC)
     target_compile_options(settings_repository_tests PRIVATE /W4 /permissive-)
 endif()
 add_test(NAME settings_repository COMMAND settings_repository_tests)
+
+add_executable(crud_buttons_tests tests/crud_buttons_tests.cpp)
+target_link_libraries(crud_buttons_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(crud_buttons_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME crud_buttons COMMAND crud_buttons_tests)
+
+add_executable(search_ui_tests tests/search_ui_tests.cpp)
+target_link_libraries(search_ui_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(search_ui_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME search_ui COMMAND search_ui_tests)
+
+add_executable(category_selection_tests tests/category_selection_tests.cpp)
+target_link_libraries(category_selection_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(category_selection_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME category_selection COMMAND category_selection_tests)
+
+add_executable(search_scope_ui_tests tests/search_scope_ui_tests.cpp)
+target_link_libraries(search_scope_ui_tests PRIVATE th_core)
+if(MSVC)
+    target_compile_options(search_scope_ui_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME search_scope_ui COMMAND search_scope_ui_tests)
 
 # End-to-end exercise of the C ABI: statically links the same api.cpp
 # implementation the SHARED library exports so we can call every entry
@@ -202,6 +259,7 @@ add_executable(capi_tests
 )
 target_link_libraries(capi_tests PRIVATE th_business)
 target_include_directories(capi_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_definitions(capi_tests PRIVATE TH_CAPI_BUILDING)
 if(MSVC)
     target_compile_options(capi_tests PRIVATE /W4 /permissive-)
 endif()
